@@ -3,7 +3,8 @@ from django.contrib.auth.models import AbstractUser
 
 
 class User(AbstractUser):
-
+    email = models.EmailField(unique=True)
+    
     class Role(models.TextChoices):
         ADMIN = "ADMIN", "Admin"
         STUDENT = "STUDENT", "Student"
