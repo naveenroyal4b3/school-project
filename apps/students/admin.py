@@ -6,22 +6,26 @@ from .models import Student
 class StudentAdmin(admin.ModelAdmin):
     list_display = (
         "admission_no",
-        "first_name",
-        "last_name",
-        "email",
-        "phone",
-        "gender",
+        "roll_number",
+        "user",
+        "organization",
+        "classroom",
+        "section",
+        "is_active",
     )
 
     search_fields = (
         "admission_no",
-        "first_name",
-        "last_name",
-        "email",
+        "roll_number",
+        "user__first_name",
+        "user__last_name",
+        "user__email",
+        "user__phone_number",
     )
 
     list_filter = (
-        "gender",
+        "organization",
+        "classroom",
+        "section",
+        "is_active",
     )
-
-    ordering = ("admission_no",)
