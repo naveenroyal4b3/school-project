@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.parents",
     "apps.common",
     "apps.transport",
+    "apps.attendance",
     "apps.notifications",
     'rest_framework',
 ]
