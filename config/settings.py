@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.fees",
     "apps.examinations",
     "apps.notifications",
+    "apps.dashboard",
     'rest_framework',
 ]
 
