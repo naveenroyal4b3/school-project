@@ -52,5 +52,10 @@ class Parent(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["user__first_name", "id"]
+
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} ({self.relationship})"

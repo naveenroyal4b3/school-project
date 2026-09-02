@@ -25,6 +25,9 @@ class Department(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # Stable ordering: pagination over an unordered queryset
+        # can repeat or skip rows between pages.
+        ordering = ["code"]
         # Codes are unique per college, not globally - two organizations may
         # both run a department coded "CSE".
         constraints = [
@@ -62,6 +65,9 @@ class Course(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # Stable ordering: pagination over an unordered queryset
+        # can repeat or skip rows between pages.
+        ordering = ["code"]
         constraints = [
             models.UniqueConstraint(
                 fields=["department", "code"],
@@ -93,6 +99,11 @@ class AcademicYear(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["-start_date"]
+
     def __str__(self):
         return self.name
 
@@ -118,6 +129,11 @@ class ClassRoom(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["name"]
+
     def __str__(self):
         return self.name
 
@@ -139,6 +155,11 @@ class Section(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["name"]
 
     def __str__(self):
         return f"{self.classroom.name} - {self.name}"
@@ -169,6 +190,11 @@ class Subject(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["code"]
 
     def __str__(self):
         return f"{self.name} ({self.code})"

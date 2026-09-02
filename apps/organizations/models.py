@@ -112,5 +112,10 @@ class Organization(models.Model):
         auto_now=True
     )
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["organization_name"]
+
     def __str__(self):
         return f"{self.organization_name} ({self.organization_code})"

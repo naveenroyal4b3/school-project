@@ -100,6 +100,11 @@ class StudentQRCode(models.Model):
 
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["student__admission_no"]
+
     def __str__(self):
         return f"QR {self.student.admission_no}"
 

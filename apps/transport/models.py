@@ -39,6 +39,11 @@ class Driver(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["license_number"]
+
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} ({self.license_number})"
 
@@ -69,6 +74,9 @@ class Route(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # Stable ordering: pagination over an unordered queryset
+        # can repeat or skip rows between pages.
+        ordering = ["code"]
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "code"],
@@ -152,6 +160,9 @@ class Bus(models.Model):
 
     class Meta:
         verbose_name_plural = "buses"
+        # Stable ordering: pagination over an unordered queryset can repeat or
+        # skip rows between pages.
+        ordering = ["registration_number"]
 
     def __str__(self):
         return self.registration_number
@@ -187,6 +198,11 @@ class StudentTransport(models.Model):
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can repeat or
+        # skip rows between pages.
+        ordering = ["student__admission_no"]
 
     def __str__(self):
         return f"{self.student.admission_no} -> {self.bus.registration_number}"

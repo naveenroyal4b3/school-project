@@ -87,5 +87,10 @@ class Student(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        # Stable ordering: pagination over an unordered queryset can
+        # repeat or skip rows between pages.
+        ordering = ["admission_no"]
+
     def __str__(self):
         return f"{self.admission_no} - {self.user.first_name} {self.user.last_name}"
