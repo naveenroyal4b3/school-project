@@ -1,6 +1,8 @@
 import datetime
+from unittest.mock import patch
 
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -11,10 +13,11 @@ from apps.common.testing import (
     make_parent,
     make_student,
     make_teacher_user,
+    rows,
 )
 from apps.notifications.models import Notification
 
-from .models import Attendance, BusAttendance, StudentQRCode
+from .models import Attendance, BusAttendance, CampusScan, StudentQRCode
 
 
 class ScanTests(APITestCase):
@@ -33,7 +36,7 @@ class ScanTests(APITestCase):
 
         response = self.client.post(
             reverse("attendance-scan"),
-            {"code": str(self.qr.code), "scan_type": "IN"},
+            {"code": str(self.qr.code), "scan_type": "IN", "context": "BUS"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -48,7 +51,7 @@ class ScanTests(APITestCase):
         self.client.force_authenticate(self.driver)
         response = self.client.post(
             reverse("attendance-scan"),
-            {"code": "not-a-real-code", "scan_type": "IN"},
+            {"code": "not-a-real-code", "scan_type": "IN", "context": "BUS"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(BusAttendance.objects.count(), 0)
@@ -60,7 +63,7 @@ class ScanTests(APITestCase):
         self.client.force_authenticate(self.driver)
         response = self.client.post(
             reverse("attendance-scan"),
-            {"code": str(self.qr.code), "scan_type": "IN"},
+            {"code": str(self.qr.code), "scan_type": "IN", "context": "BUS"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -71,7 +74,7 @@ class ScanTests(APITestCase):
         self.client.force_authenticate(other_driver)
         response = self.client.post(
             reverse("attendance-scan"),
-            {"code": str(self.qr.code), "scan_type": "IN"},
+            {"code": str(self.qr.code), "scan_type": "IN", "context": "BUS"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -81,7 +84,7 @@ class ScanTests(APITestCase):
         self.client.force_authenticate(self.student.user)
         response = self.client.post(
             reverse("attendance-scan"),
-            {"code": str(self.qr.code), "scan_type": "IN"},
+            {"code": str(self.qr.code), "scan_type": "IN", "context": "BUS"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -91,7 +94,8 @@ class ScanTests(APITestCase):
 
         self.client.force_authenticate(self.driver)
         response = self.client.post(
-            reverse("attendance-scan"), {"code": str(qr.code), "scan_type": "OUT"}
+            reverse("attendance-scan"),
+            {"code": str(qr.code), "scan_type": "OUT", "context": "BUS"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -175,4 +179,158 @@ class AttendanceScopingTests(APITestCase):
         response = self.client.get(reverse("attendance-list"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(list(response.data), [])
+        self.assertEqual(list(rows(response)), [])
+
+
+class CampusScanTests(APITestCase):
+    """Scanning an ID card at the gate must mark the day's attendance without
+    anyone touching a register."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        self.parent = make_parent(self.org)
+        self.student = make_student(self.org, parent=self.parent)
+        self.qr = StudentQRCode.objects.create(student=self.student)
+        self.admin = make_admin(self.org)
+
+    def _scan(self, scan_type="IN", **extra):
+        return self.client.post(
+            reverse("attendance-scan"),
+            {"code": str(self.qr.code), "scan_type": scan_type, "context": "CAMPUS", **extra},
+        )
+
+    def test_scan_marks_attendance_automatically(self):
+        self.client.force_authenticate(self.admin)
+        response = self._scan(device_id="GATE-1")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["context"], "CAMPUS")
+
+        record = Attendance.objects.get()
+        self.assertEqual(record.student, self.student)
+        self.assertEqual(record.date, timezone.localdate())
+        # Nobody marked this - a reader did.
+        self.assertIsNone(record.marked_by)
+
+        scan = CampusScan.objects.get()
+        self.assertEqual(scan.device_id, "GATE-1")
+        self.assertEqual(scan.attendance, record)
+
+    def test_guardian_is_alerted_on_arrival(self):
+        self.client.force_authenticate(self.admin)
+        self._scan()
+
+        notification = Notification.objects.get()
+        self.assertEqual(notification.recipient, self.parent.user)
+        self.assertEqual(notification.notification_type, Notification.Type.ATTENDANCE)
+
+    def test_scanning_twice_does_not_duplicate_or_realert(self):
+        self.client.force_authenticate(self.admin)
+        self._scan()
+        self._scan()
+
+        self.assertEqual(Attendance.objects.count(), 1)
+        self.assertEqual(Notification.objects.count(), 1)
+        # Both scans are still logged - the event trail is append-only.
+        self.assertEqual(CampusScan.objects.count(), 2)
+
+    def test_leaving_and_returning_does_not_downgrade_to_late(self):
+        """A student present at 08:00 who steps out and scans back in after the
+        cutoff must stay PRESENT."""
+        self.client.force_authenticate(self.admin)
+
+        with patch("apps.attendance.services._local_now") as now:
+            now.return_value = timezone.localtime().replace(hour=8, minute=0)
+            self._scan("IN")
+        self.assertEqual(Attendance.objects.get().status, Attendance.Status.PRESENT)
+
+        with patch("apps.attendance.services._local_now") as now:
+            now.return_value = timezone.localtime().replace(hour=11, minute=0)
+            self._scan("OUT")
+            self._scan("IN")
+
+        self.assertEqual(Attendance.objects.get().status, Attendance.Status.PRESENT)
+
+    def test_arrival_after_the_cutoff_is_marked_late(self):
+        self.client.force_authenticate(self.admin)
+
+        with patch("apps.attendance.services._local_now") as now:
+            now.return_value = timezone.localtime().replace(hour=10, minute=30)
+            self._scan("IN")
+
+        self.assertEqual(Attendance.objects.get().status, Attendance.Status.LATE)
+
+    def test_out_scan_alone_marks_nothing(self):
+        self.client.force_authenticate(self.admin)
+        response = self._scan("OUT")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["attendance"])
+        self.assertEqual(Attendance.objects.count(), 0)
+
+    def test_campus_scan_respects_the_colleges_own_cutoff(self):
+        """Two colleges on one platform start at different hours."""
+        self.org.late_after_time = datetime.time(11, 0)
+        self.org.save()
+
+        self.client.force_authenticate(self.admin)
+        with patch("apps.attendance.services._local_now") as now:
+            now.return_value = timezone.localtime().replace(hour=10, minute=30)
+            self._scan("IN")
+
+        # 10:30 is late against the default 09:15 but early here.
+        self.assertEqual(Attendance.objects.get().status, Attendance.Status.PRESENT)
+
+    def test_a_student_cannot_scan_themselves_in(self):
+        self.client.force_authenticate(self.student.user)
+        self.assertEqual(self._scan().status_code, status.HTTP_403_FORBIDDEN)
+
+
+class QRCodeTests(APITestCase):
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        self.student = make_student(self.org)
+        self.admin = make_admin(self.org)
+
+    def test_card_image_renders_a_png(self):
+        qr = StudentQRCode.objects.create(student=self.student)
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(reverse("qrcode-image", args=[qr.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "image/png")
+        # PNG magic number - proves it is a real image, not an error page.
+        self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_another_college_cannot_fetch_a_card_image(self):
+        qr = StudentQRCode.objects.create(student=self.student)
+        other = make_organization("ORGB", "School B")
+
+        self.client.force_authenticate(make_admin(other, "admin_b"))
+        response = self.client.get(reverse("qrcode-image", args=[qr.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_issue_all_is_idempotent(self):
+        make_student(self.org, "s2", "ADM-2", "R-2")
+        self.client.force_authenticate(self.admin)
+
+        first = self.client.post(reverse("qrcode-issue-all"))
+        self.assertEqual(first.data["issued"], 2)
+
+        second = self.client.post(reverse("qrcode-issue-all"))
+        self.assertEqual(second.data["issued"], 0)
+        self.assertEqual(StudentQRCode.objects.count(), 2)
+
+    def test_codes_are_unguessable(self):
+        """Sequential codes would let anyone forge a scan for a student who was
+        never there."""
+        a = StudentQRCode.objects.create(student=self.student)
+        b = StudentQRCode.objects.create(
+            student=make_student(self.org, "s2", "ADM-2", "R-2")
+        )
+
+        self.assertNotEqual(a.code, b.code)
+        self.assertNotIn(self.student.admission_no, str(a.code))
+        self.assertGreaterEqual(len(str(a.code)), 32)

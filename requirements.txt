@@ -5,4 +5,5 @@ djangorestframework==3.18.0
 djangorestframework-simplejwt==5.5.1
 PyMySQL==1.2.0
 python-dotenv==1.2.2
+qrcode[pil]==8.2
 pillow==12.3.0

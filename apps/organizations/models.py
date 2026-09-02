@@ -97,6 +97,13 @@ class Organization(models.Model):
         default="Active"
     )
 
+    # Attendance timing. An ID-card scan before day_start_time still counts as
+    # PRESENT; one after late_after_time is marked LATE. Held per organization
+    # because schools and colleges on the same platform start at different hours.
+    day_start_time = models.TimeField(default="08:00")
+
+    late_after_time = models.TimeField(default="09:15")
+
     created_at = models.DateTimeField(
         auto_now_add=True
     )

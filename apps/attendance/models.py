@@ -152,3 +152,50 @@ class BusAttendance(models.Model):
 
     def __str__(self):
         return f"{self.student.admission_no} {self.scan_type} @ {self.scanned_at}"
+
+
+class CampusScan(models.Model):
+    """An ID-card scan at a campus gate or classroom reader.
+
+    Implements the document's "Automatic IN/OUT Attendance": scanning the card
+    on the way in marks the student present for the day without anyone taking a
+    register.
+
+    Like BusAttendance this is an append-only event log. The daily Attendance
+    row it produces is linked back through ``attendance`` so a disputed mark can
+    be traced to the exact scan, time and reader that created it.
+    """
+
+    class ScanType(models.TextChoices):
+        IN = "IN", "In"
+        OUT = "OUT", "Out"
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="campus_scans",
+    )
+
+    scan_type = models.CharField(max_length=3, choices=ScanType.choices)
+
+    # Which reader produced the scan - a gate, a classroom, a handheld. Free
+    # text so a school can label its devices however it already does.
+    device_id = models.CharField(max_length=50, blank=True, null=True)
+
+    # The attendance row this scan created or updated, when it was an IN scan.
+    attendance = models.ForeignKey(
+        Attendance,
+        on_delete=models.SET_NULL,
+        related_name="source_scans",
+        null=True,
+        blank=True,
+    )
+
+    scanned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-scanned_at"]
+        indexes = [models.Index(fields=["student", "-scanned_at"])]
+
+    def __str__(self):
+        return f"{self.student.admission_no} {self.scan_type} @ {self.scanned_at}"
