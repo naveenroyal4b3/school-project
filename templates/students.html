@@ -56,13 +56,34 @@
     </div>
 
     <div class="modal__body">
-      <div class="field">
-        <label for="f-user">Linked user account</label>
-        <select class="select" id="f-user" name="user" required></select>
-        <div class="field__hint">
-          The sign-in account for this student. Create it in Django admin first
-          if it is not listed.
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label for="f-first">First name</label>
+          <input class="input" id="f-first" name="first_name" required>
         </div>
+        <div class="field">
+          <label for="f-last">Last name</label>
+          <input class="input" id="f-last" name="last_name">
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns:1fr 1fr" id="account-fields">
+        <div class="field">
+          <label for="f-username">Username</label>
+          <input class="input" id="f-username" name="new_username"
+                 autocapitalize="none" spellcheck="false">
+          <div class="field__hint">Used to sign in. Cannot be changed later.</div>
+        </div>
+        <div class="field">
+          <label for="f-email">Email <span class="muted">(optional)</span></label>
+          <input class="input" id="f-email" name="new_email" type="email"
+                 autocapitalize="none">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="f-phone">Phone <span class="muted">(optional)</span></label>
+        <input class="input" id="f-phone" name="phone_number" inputmode="tel">
       </div>
 
       <div class="grid" style="grid-template-columns:1fr 1fr">
@@ -200,28 +221,16 @@
   /* ---- Add / edit ---- */
 
   async function fillPickers() {
-    const userSelect = document.getElementById("f-user");
-    const parentSelect = document.getElementById("f-parent");
-
-    // Only accounts not already attached to a student are offered, so the
-    // one-to-one cannot be violated from the UI.
     try {
-      const taken = new Set(API.rowsOf(await API.get("/api/students/?page_size=1000"))
-        .map((s) => s.user));
-      const parents = API.rowsOf(await API.get("/api/parents/"));
-
-      parentSelect.innerHTML = '<option value="">Not linked</option>' +
+      const parents = API.rowsOf(await API.get("/api/parents/?page_size=500"));
+      document.getElementById("f-parent").innerHTML =
+        '<option value="">Not linked</option>' +
         parents.map((p) =>
-          '<option value="' + p.id + '">' + UI.escapeHTML(p.full_name || p.id) + "</option>"
+          '<option value="' + p.id + '">' +
+          UI.escapeHTML(p.full_name || ("Guardian #" + p.id)) + "</option>"
         ).join("");
-
-      if (!userSelect.dataset.loaded) {
-        userSelect.innerHTML = '<option value="">Select an account…</option>';
-        userSelect.dataset.loaded = "1";
-      }
-      userSelect.dataset.taken = JSON.stringify([...taken]);
     } catch (err) {
-      UI.toast("Could not load linked records: " + err.message, "warn");
+      UI.toast("Could not load guardians: " + err.message, "warn");
     }
   }
 
@@ -232,14 +241,21 @@
     UI.clearFormErrors(form);
     form.reset();
 
-    // A linked account cannot be reassigned once a student exists.
-    document.getElementById("f-user").disabled = Boolean(student);
+    // Usernames are not reassigned, so the field only appears when creating.
+    const accountFields = document.getElementById("account-fields");
+    accountFields.hidden = Boolean(student);
+    document.getElementById("f-username").required = !student;
 
     if (student) {
       Object.entries(student).forEach(([key, value]) => {
         const input = form.querySelector('[name="' + key + '"]');
         if (input && value !== null) input.value = value;
       });
+      // Split the display name back into the two inputs.
+      const parts = (student.student_name || "").split(" ");
+      document.getElementById("f-first").value = parts[0] || "";
+      document.getElementById("f-last").value = parts.slice(1).join(" ");
+      document.getElementById("f-email").value = student.email || "";
     }
     modal.showModal();
   }
@@ -265,8 +281,12 @@
           await API.patch("/api/students/" + editingId + "/", body);
           UI.toast("Student updated.");
         } else {
-          await API.post("/api/students/", body);
-          UI.toast("Student added.");
+          const created = await API.post("/api/students/", body);
+          // Shown once and never returned again, so it must not be missed.
+          UI.toast(
+            "Student added. Temporary password: " + created.temporary_password,
+            "ok", 30000
+          );
         }
         modal.close();
         load();
