@@ -14,3 +14,6 @@ media/
 
 # VS Code
 .vscode/
+# Local database
+db.sqlite3
+*.sqlite3
