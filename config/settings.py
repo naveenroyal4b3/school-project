@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 
 import os
+import sys
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -183,6 +184,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # A college with three thousand students would otherwise serialise every
+    # one of them on each list request. Views that return a fixed-size summary
+    # opt out with pagination_class = None.
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 25,
 }
 
 
@@ -192,6 +198,10 @@ REST_FRAMEWORK = {
 # development and tests never hit a paid API. Point SMS_BACKEND at a real
 # class to go live.
 SMS_BACKEND = os.getenv("SMS_BACKEND", "")
+
+# Online payment gateway. Empty uses the console gateway, which settles nothing
+# and must never be used in production.
+PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@smartsms.local")
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
@@ -219,3 +229,10 @@ if not DEBUG:
     X_FRAME_OPTIONS = "DENY"
     # Nginx terminates TLS and forwards the original scheme.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+
+# Test-only: PBKDF2 runs 1.2 million iterations per hash, which is exactly what
+# production wants and exactly what makes a suite creating hundreds of users
+# take minutes. Only the hashing is weakened, and only while running tests.
+if "test" in sys.argv:
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

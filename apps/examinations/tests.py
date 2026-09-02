@@ -12,6 +12,7 @@ from apps.common.testing import (
     make_parent,
     make_student,
     make_teacher_user,
+    rows,
 )
 from apps.notifications.models import Notification
 
@@ -140,13 +141,13 @@ class ResultVisibilityTests(ExamFixtureMixin, APITestCase):
         response = self.client.get(reverse("result-list"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(list(response.data), [])
+        self.assertEqual(list(rows(response)), [])
 
     def test_faculty_see_unpublished_results(self):
         self.client.force_authenticate(make_teacher_user(self.org))
         response = self.client.get(reverse("result-list"))
 
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(rows(response)), 1)
 
     def test_publishing_reveals_results_and_alerts_guardians(self):
         self.client.force_authenticate(make_admin(self.org))
@@ -161,7 +162,7 @@ class ResultVisibilityTests(ExamFixtureMixin, APITestCase):
         self.assertEqual(notification.notification_type, Notification.Type.EXAM)
 
         self.client.force_authenticate(self.student.user)
-        self.assertEqual(len(self.client.get(reverse("result-list")).data), 1)
+        self.assertEqual(len(rows(self.client.get(reverse("result-list")))), 1)
 
     def test_publishing_twice_does_not_send_duplicate_alerts(self):
         self.client.force_authenticate(make_admin(self.org))

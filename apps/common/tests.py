@@ -11,6 +11,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from apps.common.testing import rows
+
 from apps.accounts.models import User
 from apps.organizations.models import Organization
 from apps.students.models import Student
@@ -147,7 +149,7 @@ class OrganizationScopingTests(APITestCase):
         response = self.client.get(reverse("student-list"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        returned = [row["admission_no"] for row in response.data]
+        returned = [row["admission_no"] for row in rows(response)]
         self.assertEqual(returned, ["ADM-A"])
 
     def test_detail_of_other_organization_is_not_found(self):
@@ -163,7 +165,7 @@ class OrganizationScopingTests(APITestCase):
 
         response = self.client.get(reverse("student-list"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(list(response.data), [])
+        self.assertEqual(list(rows(response)), [])
 
 
 class RegistrationHardeningTests(APITestCase):

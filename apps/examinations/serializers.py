@@ -36,6 +36,8 @@ class ResultSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(
         source="exam_schedule.subject.name", read_only=True
     )
+    exam = serializers.IntegerField(source="exam_schedule.exam_id", read_only=True)
+    exam_name = serializers.CharField(source="exam_schedule.exam.name", read_only=True)
     percentage = serializers.DecimalField(
         max_digits=6, decimal_places=2, read_only=True
     )

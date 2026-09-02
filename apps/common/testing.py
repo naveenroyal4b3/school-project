@@ -77,3 +77,15 @@ def make_teacher_user(organization, username="teacher1"):
 
 def make_driver_user(organization, username="driver1"):
     return make_user(username, User.Role.DRIVER, organization)
+
+
+def rows(response):
+    """The records from a list response.
+
+    List endpoints are paginated, so the payload is {count, next, previous,
+    results}. Tests care about the records, not the envelope.
+    """
+    data = response.data
+    if isinstance(data, dict) and "results" in data:
+        return data["results"]
+    return data
