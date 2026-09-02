@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Fees - Smart SMS{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Fees &amp; payments</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Total collected</div>
+      <div class="value" id="total-collected">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Payments</div>
+      <div class="value" id="payment-count">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Failed</div>
+      <div class="value" id="failed-count">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="card stat-card">
+  <div class="table-wrap">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Receipt</th><th>Student</th><th>Fee</th>
+          <th class="text-end">Amount</th><th>Method</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="payment-rows">
+        <tr><td colspan="6" class="text-muted">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (async function load() {
+    const report = await API.getJSON("/api/reports/fees/");
+    if (report) {
+      document.getElementById("total-collected").textContent = report.total_collected;
+      document.getElementById("payment-count").textContent = report.payment_count;
+      document.getElementById("failed-count").textContent = report.failed;
+    }
+
+    const data = await API.getJSON("/api/fees/payments/");
+    const rows = Array.isArray(data) ? data : (data && data.results) || [];
+    const body = document.getElementById("payment-rows");
+
+    body.innerHTML = rows.length
+      ? rows.map(function (p) {
+          return "<tr><td>" + p.receipt_number + "</td><td>" +
+            (p.admission_no || p.student) + "</td><td>" +
+            (p.fee_name || "-") + "</td><td class='text-end'>" +
+            p.amount_paid + "</td><td>" + p.payment_method + "</td><td>" +
+            (p.status === "SUCCESS"
+              ? '<span class="badge text-bg-success">Success</span>'
+              : '<span class="badge text-bg-secondary">' + p.status + "</span>") +
+            "</td></tr>";
+        }).join("")
+      : '<tr><td colspan="6" class="text-muted">No payments recorded.</td></tr>';
+  })();
+</script>
+{% endblock %}

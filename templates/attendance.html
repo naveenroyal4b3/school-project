@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Attendance - Smart SMS{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Attendance</h1>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card stat-card p-3">
+      <h2 class="h6 text-muted">Daily report</h2>
+      <div class="input-group mb-3">
+        <input type="date" class="form-control" id="report-date">
+        <button class="btn btn-primary" id="load-report">Load</button>
+      </div>
+      <table class="table table-sm mb-0">
+        <tbody id="report-body">
+          <tr><td class="text-muted">Pick a date.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card stat-card p-3">
+      <h2 class="h6 text-muted">Recent records</h2>
+      <div class="table-wrap">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th>Admission no.</th><th>Date</th><th>Status</th></tr>
+          </thead>
+          <tbody id="attendance-rows">
+            <tr><td colspan="3" class="text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function statusBadge(value) {
+    const tone = { PRESENT: "success", ABSENT: "danger", LATE: "warning", EXCUSED: "secondary" };
+    return '<span class="badge text-bg-' + (tone[value] || "secondary") + '">' + value + "</span>";
+  }
+
+  document.getElementById("report-date").value = new Date().toISOString().slice(0, 10);
+
+  document.getElementById("load-report").addEventListener("click", async function () {
+    const date = document.getElementById("report-date").value;
+    const data = await API.getJSON("/api/reports/daily/?date=" + date);
+    const body = document.getElementById("report-body");
+
+    if (!data) {
+      body.innerHTML = '<tr><td class="text-muted">Could not load the report.</td></tr>';
+      return;
+    }
+
+    body.innerHTML =
+      "<tr><td>Present</td><td class='text-end fw-semibold'>" + data.academic.present + "</td></tr>" +
+      "<tr><td>Absent</td><td class='text-end fw-semibold'>" + data.academic.absent + "</td></tr>" +
+      "<tr><td>Late</td><td class='text-end fw-semibold'>" + data.academic.late + "</td></tr>" +
+      "<tr><td>Attendance rate</td><td class='text-end fw-semibold'>" + data.attendance_rate + "%</td></tr>" +
+      "<tr><td>Bus boardings</td><td class='text-end fw-semibold'>" + data.transport.boarded + "</td></tr>";
+  });
+
+  (async function load() {
+    const data = await API.getJSON("/api/attendance/");
+    const body = document.getElementById("attendance-rows");
+    const rows = Array.isArray(data) ? data : (data && data.results) || [];
+
+    body.innerHTML = rows.length
+      ? rows.slice(0, 25).map(function (r) {
+          return "<tr><td>" + (r.admission_no || r.student) + "</td><td>" +
+            r.date + "</td><td>" + statusBadge(r.status) + "</td></tr>";
+        }).join("")
+      : '<tr><td colspan="3" class="text-muted">No records yet.</td></tr>';
+  })();
+</script>
+{% endblock %}

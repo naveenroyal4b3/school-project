@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Smart SMS{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Dashboard</h1>
+
+<div class="row g-3 mb-4" id="stat-row">
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Students</div>
+      <div class="value" data-stat="students">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Faculty</div>
+      <div class="value" data-stat="faculty">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Buses</div>
+      <div class="value" data-stat="buses">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Fees collected</div>
+      <div class="value" data-stat="fees">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card stat-card p-3">
+      <h2 class="h6 text-muted">Attendance today</h2>
+      <div class="table-wrap">
+        <table class="table table-sm mb-0">
+          <tbody id="attendance-today">
+            <tr><td class="text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card stat-card p-3">
+      <h2 class="h6 text-muted">Transport</h2>
+      <div class="table-wrap">
+        <table class="table table-sm mb-0">
+          <tbody id="transport-summary">
+            <tr><td class="text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function row(label, value) {
+    return "<tr><td>" + label + "</td><td class='text-end fw-semibold'>" + value + "</td></tr>";
+  }
+
+  (async function load() {
+    const data = await API.getJSON("/api/dashboard/");
+    if (!data) {
+      showAlert("Could not load the dashboard.");
+      return;
+    }
+
+    document.querySelector("[data-stat=students]").textContent = data.students.total;
+    document.querySelector("[data-stat=faculty]").textContent = data.faculty;
+    document.querySelector("[data-stat=buses]").textContent = data.transport.buses;
+    document.querySelector("[data-stat=fees]").textContent = data.fees.total_collected;
+
+    const attendance = data.attendance_today;
+    document.getElementById("attendance-today").innerHTML =
+      row("Present", attendance.present) +
+      row("Absent", attendance.absent) +
+      row("Late", attendance.late);
+
+    document.getElementById("transport-summary").innerHTML =
+      row("Buses", data.transport.buses) +
+      row("Drivers", data.transport.drivers) +
+      row("Routes", data.transport.routes) +
+      row("Trips in progress", data.transport.trips_in_progress);
+  })();
+</script>
+{% endblock %}

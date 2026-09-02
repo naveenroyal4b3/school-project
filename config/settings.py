@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "apps.examinations",
     "apps.notifications",
     "apps.dashboard",
+    "apps.web",
     'rest_framework',
 ]
 
@@ -153,7 +154,14 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
+# Where collectstatic writes for the Nginx/Gunicorn deployment in Phase 6.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+
+# Uploaded profile photos and organization logos.
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
 # Custom User Model
 AUTH_USER_MODEL = "accounts.User"
 
@@ -180,4 +188,11 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@smartsms.local")
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
+
+# Templates for the Bootstrap front end live at the project root.
+TEMPLATES[0]["DIRS"] = [BASE_DIR / "templates"]
+
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/login/"
 
