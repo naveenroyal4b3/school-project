@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "apps.academics",
     "apps.parents",
     "apps.common",
+    "apps.transport",
     'rest_framework',
 ]
 
