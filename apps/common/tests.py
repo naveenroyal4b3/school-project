@@ -204,3 +204,31 @@ class RegistrationHardeningTests(APITestCase):
             {"username": "weak", "email": "weak@example.test", "password": "123"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class PaginationTests(APITestCase):
+    """Screens that print ID cards or take a roll call ask for the whole set.
+    A silently ignored page_size would show them only the first 25."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        for i in range(30):
+            make_student(
+                make_user(f"s{i}", User.Role.STUDENT, self.org),
+                self.org, f"ADM-{i:03d}", f"R-{i:03d}",
+            )
+        self.client.force_authenticate(make_user("admin1", User.Role.ORGANIZATION_ADMIN, self.org))
+
+    def test_default_page_size_is_applied(self):
+        response = self.client.get(reverse("student-list"))
+        self.assertEqual(len(rows(response)), 25)
+        self.assertEqual(response.data["count"], 30)
+
+    def test_page_size_can_be_raised(self):
+        response = self.client.get(reverse("student-list"), {"page_size": 100})
+        self.assertEqual(len(rows(response)), 30)
+
+    def test_page_size_is_capped(self):
+        """The parameter must not become a way to pull an entire college."""
+        response = self.client.get(reverse("student-list"), {"page_size": 99999})
+        self.assertEqual(len(rows(response)), 30)  # capped at 1000, all 30 fit

@@ -187,7 +187,7 @@ REST_FRAMEWORK = {
     # A college with three thousand students would otherwise serialise every
     # one of them on each list request. Views that return a fixed-size summary
     # opt out with pagination_class = None.
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
 }
 
