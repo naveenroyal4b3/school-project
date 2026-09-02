@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.common.testing import make_admin, make_organization, make_parent, make_student
+from apps.common.testing import make_admin, make_organization, make_parent, make_student, rows
 from apps.notifications.models import Notification
 
 from .models import FeePayment, FeeStructure
@@ -35,6 +35,7 @@ class FeePaymentTests(APITestCase):
                 "fee_structure": self.fee.id,
                 "amount_paid": "2000.00",
                 "payment_method": "UPI",
+                "upi_vpa": "guardian@okhdfcbank",
             },
         )
 
@@ -137,4 +138,149 @@ class FeePaymentTests(APITestCase):
         response = self.client.get(reverse("feepayment-list"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(list(response.data), [])
+        self.assertEqual(list(rows(response)), [])
+
+
+class IndianPaymentMethodTests(APITestCase):
+    """Each Indian payment rail produces a different reference. A payment
+    recorded without one cannot be traced to a bank statement when a parent
+    disputes it, so each method must carry its own identifier."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        self.student = make_student(self.org)
+        self.admin = make_admin(self.org)
+        self.fee = FeeStructure.objects.create(
+            organization=self.org,
+            name="Tuition",
+            amount=Decimal("500000.00"),
+            due_date=datetime.date(2026, 12, 31),
+        )
+        self.client.force_authenticate(self.admin)
+
+    def pay(self, **extra):
+        payload = {
+            "student": self.student.id,
+            "fee_structure": self.fee.id,
+            "amount_paid": "5000.00",
+        }
+        payload.update(extra)
+        return self.client.post(reverse("feepayment-list"), payload)
+
+    def test_all_indian_rails_are_offered(self):
+        response = self.client.get(reverse("payment-methods"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        offered = {row["value"] for row in response.data}
+        self.assertEqual(
+            offered,
+            {
+                "CASH", "UPI", "DEBIT_CARD", "CREDIT_CARD", "NET_BANKING",
+                "NEFT", "RTGS", "IMPS", "WALLET", "CHEQUE", "DEMAND_DRAFT",
+            },
+        )
+
+    def test_cash_needs_no_reference(self):
+        self.assertEqual(self.pay(payment_method="CASH").status_code, status.HTTP_201_CREATED)
+
+    def test_upi_accepts_a_vpa(self):
+        response = self.pay(payment_method="UPI", upi_vpa="parent@okaxis")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["reference"], None)  # no txn id supplied
+
+    def test_upi_without_a_reference_is_rejected(self):
+        response = self.pay(payment_method="UPI")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("upi_vpa", response.data)
+
+    def test_a_malformed_upi_id_is_rejected(self):
+        for bad in ["parentokaxis", "@okaxis", "parent@"]:
+            with self.subTest(vpa=bad):
+                response = self.pay(payment_method="UPI", upi_vpa=bad)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bank_transfers_require_a_utr(self):
+        for method in ["NEFT", "IMPS"]:
+            with self.subTest(method=method):
+                self.assertEqual(
+                    self.pay(payment_method=method).status_code,
+                    status.HTTP_400_BAD_REQUEST,
+                )
+                self.assertEqual(
+                    self.pay(
+                        payment_method=method,
+                        bank_reference=f"UTR{method}12345",
+                        transaction_id=f"txn-{method}",
+                    ).status_code,
+                    status.HTTP_201_CREATED,
+                )
+
+    def test_rtgs_below_two_lakh_is_rejected(self):
+        """RBI sets a Rs 2,00,000 floor on RTGS; smaller transfers go by NEFT."""
+        response = self.pay(
+            payment_method="RTGS", amount_paid="50000.00", bank_reference="UTR999"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("payment_method", response.data)
+
+    def test_rtgs_at_or_above_two_lakh_is_accepted(self):
+        response = self.pay(
+            payment_method="RTGS", amount_paid="200000.00", bank_reference="UTR1000"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_cheque_and_dd_require_an_instrument_number(self):
+        for method in ["CHEQUE", "DEMAND_DRAFT"]:
+            with self.subTest(method=method):
+                self.assertEqual(
+                    self.pay(payment_method=method).status_code,
+                    status.HTTP_400_BAD_REQUEST,
+                )
+                response = self.pay(
+                    payment_method=method,
+                    instrument_number=f"{method}-000123",
+                    bank_name="State Bank of India",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                self.assertEqual(response.data["reference"], f"{method}-000123")
+
+    def test_cards_wallets_and_net_banking_require_a_transaction_id(self):
+        for method in ["DEBIT_CARD", "CREDIT_CARD", "NET_BANKING", "WALLET"]:
+            with self.subTest(method=method):
+                self.assertEqual(
+                    self.pay(payment_method=method).status_code,
+                    status.HTTP_400_BAD_REQUEST,
+                )
+                self.assertEqual(
+                    self.pay(
+                        payment_method=method, transaction_id=f"pay_{method}"
+                    ).status_code,
+                    status.HTTP_201_CREATED,
+                )
+
+    def test_receipt_reports_the_rail_and_its_reference(self):
+        payment = self.pay(
+            payment_method="IMPS", bank_reference="UTR55512345", transaction_id="txn-imps"
+        )
+        response = self.client.get(
+            reverse("feepayment-receipt", args=[payment.data["id"]])
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["payment_method"], "IMPS")
+
+
+class PaymentGatewayTests(APITestCase):
+    def test_console_gateway_converts_rupees_to_paise(self):
+        """Indian gateways bill in the smallest unit - a rupees figure sent
+        as-is would undercharge by a factor of a hundred."""
+        from apps.fees.gateways import get_payment_gateway, to_minor_units
+
+        self.assertEqual(to_minor_units(Decimal("1500.00")), 150000)
+        self.assertEqual(to_minor_units(Decimal("99.99")), 9999)
+
+        order = get_payment_gateway().create_order(
+            amount=Decimal("1500.00"), receipt="RCPT-00000001"
+        )
+        self.assertEqual(order["amount"], 150000)
+        self.assertEqual(order["currency"], "INR")
+        self.assertTrue(order["order_id"].startswith("order_dev_"))

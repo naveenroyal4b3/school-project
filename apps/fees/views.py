@@ -6,8 +6,12 @@ from apps.common.permissions import IsAdmin, IsAdminOrReadOnly
 from apps.notifications.models import Notification
 from apps.notifications.services import notify_guardians
 
-from .models import FeePayment, FeeStructure
-from .serializers import FeePaymentSerializer, FeeStructureSerializer
+from .models import RTGS_MINIMUM, FeePayment, FeeStructure
+from .serializers import (
+    FeePaymentSerializer,
+    FeeStructureSerializer,
+    PaymentMethodSerializer,
+)
 
 
 class FeeStructureListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
@@ -120,3 +124,43 @@ class StudentFeeSummaryView(generics.GenericAPIView):
                 "payments": FeePaymentSerializer(payments, many=True).data,
             }
         )
+
+
+# Grouping and the reference each rail needs, served to the front end so the
+# payment form does not carry a second copy of the rules that live in the
+# serializer.
+METHOD_METADATA = {
+    FeePayment.Method.CASH: ("Cash & instruments", None, None),
+    FeePayment.Method.CHEQUE: ("Cash & instruments", "instrument_number", None),
+    FeePayment.Method.DEMAND_DRAFT: ("Cash & instruments", "instrument_number", None),
+    FeePayment.Method.UPI: ("UPI", "upi_vpa", None),
+    FeePayment.Method.DEBIT_CARD: ("Cards", "transaction_id", None),
+    FeePayment.Method.CREDIT_CARD: ("Cards", "transaction_id", None),
+    FeePayment.Method.NET_BANKING: ("Online", "transaction_id", None),
+    FeePayment.Method.WALLET: ("Online", "transaction_id", None),
+    FeePayment.Method.NEFT: ("Bank transfer", "bank_reference", None),
+    FeePayment.Method.IMPS: ("Bank transfer", "bank_reference", None),
+    FeePayment.Method.RTGS: ("Bank transfer", "bank_reference", RTGS_MINIMUM),
+}
+
+
+class PaymentMethodListView(generics.ListAPIView):
+    """GET /api/fees/methods/ - the supported payment rails."""
+
+    serializer_class = PaymentMethodSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return [
+            {
+                "value": value,
+                "label": label,
+                "group": METHOD_METADATA[value][0],
+                "requires": METHOD_METADATA[value][1],
+                "minimum": METHOD_METADATA[value][2],
+            }
+            for value, label in FeePayment.Method.choices
+        ]
+
+    def list(self, request, *args, **kwargs):
+        return Response(self.get_serializer(self.get_queryset(), many=True).data)

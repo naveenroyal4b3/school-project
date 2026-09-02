@@ -5,12 +5,14 @@ from .views import (
     FeePaymentListCreateView,
     FeeStructureDetailView,
     FeeStructureListCreateView,
+    PaymentMethodListView,
     ReceiptView,
     StudentFeeSummaryView,
 )
 
 urlpatterns = [
     path("", FeeStructureListCreateView.as_view(), name="feestructure-list"),
+    path("methods/", PaymentMethodListView.as_view(), name="payment-methods"),
     path("<int:pk>/", FeeStructureDetailView.as_view(), name="feestructure-detail"),
 
     path("payments/", FeePaymentListCreateView.as_view(), name="feepayment-list"),

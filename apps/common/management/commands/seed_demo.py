@@ -267,13 +267,40 @@ class Command(BaseCommand):
                 )
 
             if not student.fee_payments.exists():
+                # Spread across the rails a school actually sees, each with the
+                # reference that rail produces.
+                method = random.choice(
+                    [
+                        FeePayment.Method.UPI,
+                        FeePayment.Method.CASH,
+                        FeePayment.Method.DEBIT_CARD,
+                        FeePayment.Method.NET_BANKING,
+                        FeePayment.Method.NEFT,
+                        FeePayment.Method.CHEQUE,
+                    ]
+                )
+                extra = {}
+                if method == FeePayment.Method.UPI:
+                    extra["upi_vpa"] = f"{first.lower()}{i}@okhdfcbank"
+                elif method == FeePayment.Method.NEFT:
+                    extra["bank_reference"] = f"UTR2026{i:07d}"
+                    extra["bank_name"] = "State Bank of India"
+                elif method == FeePayment.Method.CHEQUE:
+                    extra["instrument_number"] = f"{400000 + i}"
+                    extra["bank_name"] = "HDFC Bank"
+                    extra["instrument_date"] = datetime.date(2026, 9, 1)
+                elif method in (
+                    FeePayment.Method.DEBIT_CARD,
+                    FeePayment.Method.NET_BANKING,
+                ):
+                    extra["transaction_id"] = f"pay_demo{i:06d}"
+
                 FeePayment.objects.create(
                     student=student,
                     fee_structure=fee,
                     amount_paid=Decimal(random.choice(["15000.00", "7500.00", "10000.00"])),
-                    payment_method=random.choice(
-                        [FeePayment.Method.UPI, FeePayment.Method.CASH, FeePayment.Method.CARD]
-                    ),
+                    payment_method=method,
+                    **extra,
                 )
 
             for schedule in schedules:

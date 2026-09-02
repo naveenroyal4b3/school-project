@@ -13,6 +13,11 @@ from apps.academics.models import AcademicYear, ClassRoom, Course
 from apps.organizations.models import Organization
 from apps.students.models import Student
 
+# RBI sets a floor of Rs 2,00,000 on RTGS transfers; anything smaller has to go
+# by NEFT or IMPS. Enforced in the serializer so a payment is not recorded
+# against a rail that could not have carried it.
+RTGS_MINIMUM = Decimal("200000.00")
+
 
 class FeeStructure(models.Model):
     """A charge that applies to a group of students.
@@ -91,11 +96,31 @@ class FeePayment(models.Model):
     """
 
     class Method(models.TextChoices):
+        """Payment rails in common use in India.
+
+        Grouped as: cash and paper instruments, cards, and the electronic rails
+        (UPI, net banking, the NEFT/RTGS/IMPS bank transfers, and wallets).
+        Each carries a different reference number, which is why the reference
+        fields below are separate rather than one overloaded column.
+        """
+
         CASH = "CASH", "Cash"
-        CARD = "CARD", "Card"
         UPI = "UPI", "UPI"
+        DEBIT_CARD = "DEBIT_CARD", "Debit Card"
+        CREDIT_CARD = "CREDIT_CARD", "Credit Card"
         NET_BANKING = "NET_BANKING", "Net Banking"
+        NEFT = "NEFT", "NEFT"
+        RTGS = "RTGS", "RTGS"
+        IMPS = "IMPS", "IMPS"
+        WALLET = "WALLET", "Wallet"
         CHEQUE = "CHEQUE", "Cheque"
+        DEMAND_DRAFT = "DEMAND_DRAFT", "Demand Draft"
+
+    # Rails that settle through a bank and carry a UTR.
+    BANK_TRANSFER_METHODS = ("NEFT", "RTGS", "IMPS")
+    # Rails represented by a physical instrument with a printed number.
+    INSTRUMENT_METHODS = ("CHEQUE", "DEMAND_DRAFT")
+    CARD_METHODS = ("DEBIT_CARD", "CREDIT_CARD")
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -135,6 +160,24 @@ class FeePayment(models.Model):
         max_length=100, unique=True, null=True, blank=True
     )
 
+    # UPI virtual payment address the money came from, e.g. name@okhdfcbank.
+    upi_vpa = models.CharField(max_length=100, blank=True, null=True)
+
+    # UTR / bank reference for NEFT, RTGS and IMPS transfers.
+    bank_reference = models.CharField(max_length=50, blank=True, null=True)
+
+    # Cheque or demand draft number.
+    instrument_number = models.CharField(max_length=30, blank=True, null=True)
+
+    instrument_date = models.DateField(blank=True, null=True)
+
+    bank_name = models.CharField(max_length=100, blank=True, null=True)
+
+    # Which gateway processed an online payment, when one did.
+    gateway = models.CharField(max_length=30, blank=True, null=True)
+
+    gateway_order_id = models.CharField(max_length=100, blank=True, null=True)
+
     receipt_number = models.CharField(max_length=30, unique=True, editable=False)
 
     payment_date = models.DateField(auto_now_add=True)
@@ -146,6 +189,16 @@ class FeePayment(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["student", "-created_at"])]
+
+    @property
+    def reference(self):
+        """The reference a parent would quote, whichever rail was used."""
+        return (
+            self.transaction_id
+            or self.bank_reference
+            or self.instrument_number
+            or None
+        )
 
     def save(self, *args, **kwargs):
         if not self.receipt_number:
