@@ -159,8 +159,9 @@ a { color: var(--brand); }
   display: grid; place-items: center; font-weight: 600; font-size: .75rem;
 }
 
-/* Mobile: sidebar becomes a drawer. Parents and drivers are on phones. */
-.sidebar__toggle { display: none; }
+/* Mobile: sidebar becomes a drawer. Parents and drivers are on phones.
+   The toggle's own display rules live at the end of this file - see the note
+   there. */
 .scrim { display: none; }
 
 @media (max-width: 900px) {
@@ -170,7 +171,6 @@ a { color: var(--brand); }
     transition: transform .2s ease;
   }
   .sidebar.is-open { transform: none; box-shadow: var(--shadow); }
-  .sidebar__toggle { display: grid; }
   .scrim.is-open {
     display: block; position: fixed; inset: 0;
     background: rgb(15 23 42 / 45%); z-index: 30;
@@ -342,4 +342,19 @@ dialog.modal::backdrop { background: rgb(15 23 42 / 45%); }
   body { background: #fff; }
   .content { padding: 0; }
   .id-card { break-inside: avoid; box-shadow: none; }
+}
+
+
+/* ---------- Responsive toggle (must stay last) ----------
+ *
+ * .btn sets display:inline-flex at equal specificity. Declared earlier, these
+ * rules lost to it and the hamburger appeared on desktop, where pressing it did
+ * nothing because the drawer styles only exist inside the media query. Keep
+ * this block after .btn, or that bug returns.
+ */
+
+.sidebar__toggle { display: none; }
+
+@media (max-width: 900px) {
+  .sidebar__toggle { display: inline-flex; }
 }

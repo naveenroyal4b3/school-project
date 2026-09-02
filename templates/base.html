@@ -128,16 +128,42 @@
     const scrim = document.getElementById("scrim");
     const toggle = document.getElementById("nav-toggle");
 
+    function drawerIsOpen() { return sidebar.classList.contains("is-open"); }
+
     function setDrawer(open) {
       sidebar.classList.toggle("is-open", open);
       scrim.classList.toggle("is-open", open);
       scrim.hidden = !open;
       toggle.setAttribute("aria-expanded", String(open));
-      if (open) sidebar.querySelector(".nav-link").focus();
+
+      // Move focus into the drawer on open and hand it back on close, so the
+      // keyboard does not end up somewhere invisible behind the scrim.
+      if (open) {
+        const first = sidebar.querySelector(".nav-link:not([hidden])");
+        if (first) first.focus();
+      } else if (document.activeElement && sidebar.contains(document.activeElement)) {
+        toggle.focus();
+      }
     }
-    toggle.addEventListener("click", () => setDrawer(!sidebar.classList.contains("is-open")));
+
+    toggle.addEventListener("click", () => setDrawer(!drawerIsOpen()));
     scrim.addEventListener("click", () => setDrawer(false));
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") setDrawer(false); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && drawerIsOpen()) setDrawer(false);
+    });
+
+    // Close on navigation: tapping a link inside the drawer otherwise leaves it
+    // and the scrim covering the page that just loaded.
+    sidebar.addEventListener("click", (e) => {
+      if (e.target.closest(".nav-link")) setDrawer(false);
+    });
+
+    // Widening past the breakpoint leaves the drawer state stranded: the
+    // sidebar is docked again but the scrim still covers the page.
+    const wide = window.matchMedia("(min-width: 901px)");
+    const syncToViewport = (event) => { if (event.matches) setDrawer(false); };
+    wide.addEventListener("change", syncToViewport);
+    syncToViewport(wide);
 
     document.getElementById("logout-btn").addEventListener("click", () => {
       API.clear();
