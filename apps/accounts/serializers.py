@@ -1,9 +1,21 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from .models import User
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    """Public self-registration.
+
+    "role" is deliberately absent: this endpoint is AllowAny, so accepting a
+    role from the request body would let anyone register themselves as
+    SUPER_ADMIN. Self-registered accounts always land on the default STUDENT
+    role, and an admin promotes them afterwards.
+    """
+
+    password = serializers.CharField(
+        write_only=True,
+        validators=[validate_password],
+    )
 
     class Meta:
         model = User
@@ -14,13 +26,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone_number",
-            "role",
         ]
 
     def create(self, validated_data):
         password = validated_data.pop("password")
 
-        user = User(**validated_data)
+        user = User(**validated_data, role=User.Role.STUDENT)
         user.set_password(password)
         user.save()
 
@@ -30,7 +41,22 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = "__all__"
+        # Explicit list: "__all__" leaked the password hash plus
+        # is_superuser/is_staff/permissions in the register response.
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "role",
+            "organization",
+            "profile_image",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class OrganizationAdminSerializer(serializers.ModelSerializer):
