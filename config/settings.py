@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.parents",
     "apps.common",
     "apps.transport",
+    "apps.notifications",
     'rest_framework',
 ]
 
@@ -165,4 +166,14 @@ REST_FRAMEWORK = {
 }
 
 
+
+# Notifications
+# The SMS gateway is pluggable; the default backend logs instead of sending so
+# development and tests never hit a paid API. Point SMS_BACKEND at a real
+# class to go live.
+SMS_BACKEND = os.getenv("SMS_BACKEND", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@smartsms.local")
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
 
