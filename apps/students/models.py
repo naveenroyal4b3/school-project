@@ -3,6 +3,7 @@ from django.conf import settings
 
 from apps.organizations.models import Organization
 from apps.academics.models import AcademicYear, ClassRoom, Section
+from apps.parents.models import Parent
 
 
 class Student(models.Model):
@@ -46,6 +47,14 @@ class Student(models.Model):
     section = models.ForeignKey(
         Section,
         on_delete=models.CASCADE,
+        related_name="students",
+        null=True,
+        blank=True,
+    )
+
+    parent = models.ForeignKey(
+        Parent,
+        on_delete=models.SET_NULL,
         related_name="students",
         null=True,
         blank=True,

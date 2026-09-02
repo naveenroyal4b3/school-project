@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.organizations',
     "apps.teachers",
     "apps.academics",
+    "apps.parents",
     "apps.common",
     'rest_framework',
 ]
