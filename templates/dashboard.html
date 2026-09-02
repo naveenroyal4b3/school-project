@@ -1,94 +1,171 @@
 {% extends "base.html" %}
-{% block title %}Dashboard - Smart SMS{% endblock %}
+{% block title %}Dashboard · Smart Student{% endblock %}
+{% block heading %}Dashboard{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Dashboard</h1>
-
-<div class="row g-3 mb-4" id="stat-row">
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Students</div>
-      <div class="value" data-stat="students">-</div>
-    </div>
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="muted small" style="margin:0" id="today-label"></p>
   </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Faculty</div>
-      <div class="value" data-stat="faculty">-</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Buses</div>
-      <div class="value" data-stat="buses">-</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Fees collected</div>
-      <div class="value" data-stat="fees">-</div>
-    </div>
+  <div class="toolbar">
+    <a class="btn btn--ghost" href="/attendance/">Attendance</a>
+    <a class="btn btn--primary" href="/scanner/"
+       data-roles="SUPER_ADMIN,ORGANIZATION_ADMIN,DRIVER">Open scanner</a>
   </div>
 </div>
 
-<div class="row g-3">
-  <div class="col-lg-6">
-    <div class="card stat-card p-3">
-      <h2 class="h6 text-muted">Attendance today</h2>
-      <div class="table-wrap">
-        <table class="table table-sm mb-0">
-          <tbody id="attendance-today">
-            <tr><td class="text-muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+<div class="grid grid--stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="stat__label">Students</div>
+    <div class="stat__value" data-stat="students"><span class="skeleton" style="width:60px;display:inline-block"></span></div>
+    <div class="stat__meta" data-stat="students-meta">&nbsp;</div>
   </div>
-
-  <div class="col-lg-6">
-    <div class="card stat-card p-3">
-      <h2 class="h6 text-muted">Transport</h2>
-      <div class="table-wrap">
-        <table class="table table-sm mb-0">
-          <tbody id="transport-summary">
-            <tr><td class="text-muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+  <div class="card stat">
+    <div class="stat__label">Present today</div>
+    <div class="stat__value" data-stat="present"><span class="skeleton" style="width:60px;display:inline-block"></span></div>
+    <div class="stat__meta" data-stat="present-meta">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Fees collected</div>
+    <div class="stat__value tabular" data-stat="fees"><span class="skeleton" style="width:90px;display:inline-block"></span></div>
+    <div class="stat__meta" data-stat="fees-meta">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Buses running</div>
+    <div class="stat__value" data-stat="buses"><span class="skeleton" style="width:50px;display:inline-block"></span></div>
+    <div class="stat__meta" data-stat="buses-meta">&nbsp;</div>
   </div>
 </div>
+
+<div class="grid grid--halves">
+  <section class="card">
+    <div class="card__head">
+      <h2 style="margin:0">Attendance today</h2>
+      <a class="btn btn--ghost btn--sm" href="/attendance/">Details</a>
+    </div>
+    <div class="card__body">
+      <div id="attendance-bar" style="display:flex;height:9px;border-radius:999px;
+           overflow:hidden;background:var(--surface-sunken);margin-bottom:14px"></div>
+      <div class="table-wrap">
+        <table class="data"><tbody id="attendance-rows"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card__head">
+      <h2 style="margin:0">Transport</h2>
+      <a class="btn btn--ghost btn--sm" href="/tracking/">Live map</a>
+    </div>
+    <div class="card__body">
+      <div class="table-wrap">
+        <table class="data"><tbody id="transport-rows"></tbody></table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <div class="card__head"><h2 style="margin:0">Recent gate scans</h2></div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Student</th><th>Direction</th><th>Reader</th><th>Time</th></tr></thead>
+      <tbody id="scan-rows">{{ '' }}</tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  function row(label, value) {
-    return "<tr><td>" + label + "</td><td class='text-end fw-semibold'>" + value + "</td></tr>";
+  document.getElementById("today-label").textContent =
+    new Date().toLocaleDateString("en-IN",
+      { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  document.getElementById("scan-rows").innerHTML = UI.skeletonRows(4, 4);
+
+  function kvRow(label, value) {
+    return "<tr>" + UI.td(label) + UI.td(value, "num") + "</tr>";
   }
 
-  (async function load() {
-    const data = await API.getJSON("/api/dashboard/");
-    if (!data) {
-      showAlert("Could not load the dashboard.");
+  async function loadSummary() {
+    let data;
+    try {
+      data = await API.get("/api/dashboard/");
+    } catch (err) {
+      UI.toast(err.message, "danger");
+      document.querySelectorAll("[data-stat]").forEach((el) => { el.textContent = "—"; });
       return;
     }
 
-    document.querySelector("[data-stat=students]").textContent = data.students.total;
-    document.querySelector("[data-stat=faculty]").textContent = data.faculty;
-    document.querySelector("[data-stat=buses]").textContent = data.transport.buses;
-    document.querySelector("[data-stat=fees]").textContent = data.fees.total_collected;
+    const attendance = data.attendance_today || {};
+    const marked = (attendance.present || 0) + (attendance.absent || 0) + (attendance.late || 0);
 
-    const attendance = data.attendance_today;
-    document.getElementById("attendance-today").innerHTML =
-      row("Present", attendance.present) +
-      row("Absent", attendance.absent) +
-      row("Late", attendance.late);
+    document.querySelector('[data-stat="students"]').textContent = data.students.total;
+    document.querySelector('[data-stat="students-meta"]').textContent =
+      data.students.active + " active · " + data.faculty + " faculty";
 
-    document.getElementById("transport-summary").innerHTML =
-      row("Buses", data.transport.buses) +
-      row("Drivers", data.transport.drivers) +
-      row("Routes", data.transport.routes) +
-      row("Trips in progress", data.transport.trips_in_progress);
-  })();
+    document.querySelector('[data-stat="present"]').textContent = attendance.present || 0;
+    document.querySelector('[data-stat="present-meta"]').textContent = marked
+      ? Math.round((attendance.present / marked) * 100) + "% of " + marked + " marked"
+      : "Nothing marked yet";
+
+    document.querySelector('[data-stat="fees"]').textContent =
+      UI.money(data.fees.total_collected);
+    document.querySelector('[data-stat="fees-meta"]').textContent = "Collected to date";
+
+    document.querySelector('[data-stat="buses"]').textContent =
+      data.transport.trips_in_progress;
+    document.querySelector('[data-stat="buses-meta"]').textContent =
+      "of " + data.transport.buses + " buses · " + data.transport.routes + " routes";
+
+    // Proportional bar. Guarded: a day with nothing marked would divide by zero.
+    const bar = document.getElementById("attendance-bar");
+    if (marked) {
+      const segment = (count, color) =>
+        '<div style="width:' + (count / marked) * 100 + '%;background:' + color + '"></div>';
+      bar.innerHTML =
+        segment(attendance.present || 0, "var(--ok)") +
+        segment(attendance.late || 0, "var(--warn)") +
+        segment(attendance.absent || 0, "var(--danger)");
+    } else {
+      bar.remove();
+    }
+
+    document.getElementById("attendance-rows").innerHTML =
+      kvRow("Present", attendance.present || 0) +
+      kvRow("Late", attendance.late || 0) +
+      kvRow("Absent", attendance.absent || 0) +
+      kvRow("Total marked", marked);
+
+    document.getElementById("transport-rows").innerHTML =
+      kvRow("Buses", data.transport.buses) +
+      kvRow("Drivers", data.transport.drivers) +
+      kvRow("Routes", data.transport.routes) +
+      kvRow("Trips in progress", data.transport.trips_in_progress);
+  }
+
+  async function loadScans() {
+    const body = document.getElementById("scan-rows");
+    try {
+      const rows = API.rowsOf(await API.get("/api/attendance/campus/")).slice(0, 8);
+      body.innerHTML = rows.length
+        ? rows.map((s) =>
+            "<tr>" + UI.td(s.admission_no) +
+            "<td>" + UI.statusPill(s.scan_type === "IN" ? "PRESENT" : "") +
+              (s.scan_type === "OUT" ? UI.pill("Out", "muted") : "") + "</td>" +
+            UI.td(s.device_id || "—") +
+            UI.td(UI.formatDateTime(s.scanned_at)) + "</tr>"
+          ).join("")
+        : UI.emptyRow(4, "No scans yet", "Gate scans appear here as cards are read.");
+    } catch (err) {
+      // A permission error here is normal for non-admins; the panel just hides.
+      body.innerHTML = UI.emptyRow(4, "Not available", err.message);
+    }
+  }
+
+  loadSummary();
+  loadScans();
 </script>
 {% endblock %}

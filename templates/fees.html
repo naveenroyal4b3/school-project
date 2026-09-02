@@ -1,73 +1,329 @@
 {% extends "base.html" %}
-{% block title %}Fees - Smart SMS{% endblock %}
+{% block title %}Fees · Student Management System{% endblock %}
+{% block heading %}Fees &amp; payments{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Fees &amp; payments</h1>
-
-<div class="row g-3 mb-4">
-  <div class="col-md-4">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Total collected</div>
-      <div class="value" id="total-collected">-</div>
-    </div>
+<div class="page-head">
+  <div>
+    <h1>Fees &amp; payments</h1>
+    <p class="muted small" style="margin:0">Collections across every payment method.</p>
   </div>
-  <div class="col-md-4">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Payments</div>
-      <div class="value" id="payment-count">-</div>
-    </div>
-  </div>
-  <div class="col-md-4">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Failed</div>
-      <div class="value" id="failed-count">-</div>
-    </div>
+  <div class="toolbar">
+    <button class="btn btn--primary" id="record-btn"
+            data-roles="SUPER_ADMIN,ORGANIZATION_ADMIN">Record payment</button>
   </div>
 </div>
 
-<div class="card stat-card">
+<div class="grid grid--stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="stat__label">Collected</div>
+    <div class="stat__value tabular" id="stat-collected">—</div>
+    <div class="stat__meta" id="stat-collected-meta">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Payments</div>
+    <div class="stat__value" id="stat-count">—</div>
+    <div class="stat__meta" id="stat-count-meta">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Failed</div>
+    <div class="stat__value" id="stat-failed">—</div>
+    <div class="stat__meta">Needs follow-up</div>
+  </div>
+</div>
+
+<div class="grid grid--halves" style="margin-bottom:16px">
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">By payment method</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Method</th><th class="num">Payments</th><th class="num">Amount</th></tr></thead>
+        <tbody id="method-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">Fee structures</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Name</th><th>Frequency</th><th>Due</th><th class="num">Amount</th></tr></thead>
+        <tbody id="structure-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card__head"><h2 style="margin:0">Payments</h2></div>
   <div class="table-wrap">
-    <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light">
+    <table class="data">
+      <thead>
         <tr>
-          <th>Receipt</th><th>Student</th><th>Fee</th>
-          <th class="text-end">Amount</th><th>Method</th><th>Status</th>
+          <th>Receipt</th><th>Student</th><th>Fee</th><th>Method</th>
+          <th>Reference</th><th class="num">Amount</th><th>Status</th><th></th>
         </tr>
       </thead>
-      <tbody id="payment-rows">
-        <tr><td colspan="6" class="text-muted">Loading...</td></tr>
-      </tbody>
+      <tbody id="payment-rows"></tbody>
     </table>
   </div>
-</div>
+</section>
+
+<dialog class="modal" id="pay-modal" aria-labelledby="pay-title">
+  <form id="pay-form" method="dialog">
+    <div class="modal__head">
+      <h2 id="pay-title" style="margin:0">Record payment</h2>
+      <button type="button" class="toast__close" id="pay-close" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modal__body">
+      <div class="field">
+        <label for="p-student">Student</label>
+        <select class="select" id="p-student" name="student" required></select>
+      </div>
+
+      <div class="field">
+        <label for="p-fee">Fee</label>
+        <select class="select" id="p-fee" name="fee_structure" required></select>
+      </div>
+
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label for="p-amount">Amount (₹)</label>
+          <input class="input" id="p-amount" name="amount_paid" type="number"
+                 min="1" step="0.01" required inputmode="decimal">
+        </div>
+        <div class="field">
+          <label for="p-method">Payment method</label>
+          <select class="select" id="p-method" name="payment_method" required></select>
+          <div class="field__hint" id="method-hint">&nbsp;</div>
+        </div>
+      </div>
+
+      <!-- Only the reference the chosen rail actually produces is shown. -->
+      <div class="field" data-ref="upi_vpa" hidden>
+        <label for="p-vpa">Payer's UPI ID</label>
+        <input class="input" id="p-vpa" name="upi_vpa" placeholder="name@okhdfcbank"
+               autocapitalize="none" spellcheck="false">
+      </div>
+
+      <div class="field" data-ref="bank_reference" hidden>
+        <label for="p-utr">UTR / bank reference</label>
+        <input class="input" id="p-utr" name="bank_reference" autocapitalize="characters">
+      </div>
+
+      <div class="field" data-ref="transaction_id" hidden>
+        <label for="p-txn">Gateway transaction ID</label>
+        <input class="input" id="p-txn" name="transaction_id" autocapitalize="none">
+      </div>
+
+      <div data-ref="instrument_number" hidden>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="field">
+            <label for="p-instrument">Cheque / DD number</label>
+            <input class="input" id="p-instrument" name="instrument_number" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="p-instrument-date">Instrument date</label>
+            <input class="input" id="p-instrument-date" name="instrument_date" type="date">
+          </div>
+        </div>
+        <div class="field">
+          <label for="p-bank">Bank</label>
+          <input class="input" id="p-bank" name="bank_name">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="p-remarks">Remarks <span class="muted">(optional)</span></label>
+        <input class="input" id="p-remarks" name="remarks" maxlength="200">
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" id="pay-cancel">Cancel</button>
+      <button type="submit" class="btn btn--primary" id="pay-save">Record payment</button>
+    </div>
+  </form>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  (async function load() {
-    const report = await API.getJSON("/api/reports/fees/");
-    if (report) {
-      document.getElementById("total-collected").textContent = report.total_collected;
-      document.getElementById("payment-count").textContent = report.payment_count;
-      document.getElementById("failed-count").textContent = report.failed;
+  const form = document.getElementById("pay-form");
+  const modal = document.getElementById("pay-modal");
+  let methods = [];
+
+  /* ---- Method-aware reference fields ---- */
+
+  function applyMethod() {
+    const value = document.getElementById("p-method").value;
+    const method = methods.find((m) => m.value === value);
+
+    document.querySelectorAll("[data-ref]").forEach((el) => { el.hidden = true; });
+
+    const hint = document.getElementById("method-hint");
+    if (!method) { hint.textContent = ""; return; }
+
+    if (method.requires) {
+      const block = document.querySelector('[data-ref="' + method.requires + '"]');
+      if (block) block.hidden = false;
     }
 
-    const data = await API.getJSON("/api/fees/payments/");
-    const rows = Array.isArray(data) ? data : (data && data.results) || [];
-    const body = document.getElementById("payment-rows");
+    hint.textContent = method.minimum
+      ? "Minimum " + UI.money(method.minimum) + " for " + method.label + "."
+      : (method.requires ? "" : "No reference required.");
+  }
 
-    body.innerHTML = rows.length
-      ? rows.map(function (p) {
-          return "<tr><td>" + p.receipt_number + "</td><td>" +
-            (p.admission_no || p.student) + "</td><td>" +
-            (p.fee_name || "-") + "</td><td class='text-end'>" +
-            p.amount_paid + "</td><td>" + p.payment_method + "</td><td>" +
-            (p.status === "SUCCESS"
-              ? '<span class="badge text-bg-success">Success</span>'
-              : '<span class="badge text-bg-secondary">' + p.status + "</span>") +
-            "</td></tr>";
-        }).join("")
-      : '<tr><td colspan="6" class="text-muted">No payments recorded.</td></tr>';
+  async function loadMethods() {
+    methods = await API.get("/api/fees/methods/");
+
+    // Grouped so a long flat list of eleven rails is scannable.
+    const groups = {};
+    methods.forEach((m) => { (groups[m.group] = groups[m.group] || []).push(m); });
+
+    document.getElementById("p-method").innerHTML =
+      Object.entries(groups).map(([group, items]) =>
+        '<optgroup label="' + UI.escapeHTML(group) + '">' +
+        items.map((m) =>
+          '<option value="' + UI.escapeHTML(m.value) + '">' +
+          UI.escapeHTML(m.label) + "</option>"
+        ).join("") + "</optgroup>"
+      ).join("");
+
+    applyMethod();
+  }
+
+  document.getElementById("p-method").addEventListener("change", applyMethod);
+
+  /* ---- Data ---- */
+
+  async function loadSummary() {
+    try {
+      const report = await API.get("/api/reports/fees/");
+      document.getElementById("stat-collected").textContent = UI.money(report.total_collected);
+      document.getElementById("stat-collected-meta").textContent = "Successful payments only";
+      document.getElementById("stat-count").textContent = report.payment_count;
+      document.getElementById("stat-count-meta").textContent = "All statuses";
+      document.getElementById("stat-failed").textContent = report.failed;
+
+      const labels = Object.fromEntries(methods.map((m) => [m.value, m.label]));
+      document.getElementById("method-rows").innerHTML = report.by_method.length
+        ? report.by_method.map((row) =>
+            "<tr>" + UI.td(labels[row.payment_method] || row.payment_method) +
+            UI.td(row.count, "num") +
+            UI.td(UI.money(row.total), "num") + "</tr>"
+          ).join("")
+        : UI.emptyRow(3, "Nothing collected yet", "");
+    } catch (err) {
+      UI.toast(err.message, "danger");
+    }
+  }
+
+  async function loadStructures() {
+    const body = document.getElementById("structure-rows");
+    try {
+      const rows = API.rowsOf(await API.get("/api/fees/"));
+      body.innerHTML = rows.length
+        ? rows.map((f) =>
+            "<tr>" + UI.td(f.name) +
+            UI.td((f.frequency || "").replace(/_/g, " ").toLowerCase()) +
+            UI.td(UI.formatDate(f.due_date)) +
+            UI.td(UI.money(f.amount), "num") + "</tr>"
+          ).join("")
+        : UI.emptyRow(4, "No fee structures", "Add one in Django admin.");
+    } catch (err) {
+      body.innerHTML = UI.emptyRow(4, "Could not load", err.message);
+    }
+  }
+
+  async function loadPayments() {
+    const body = document.getElementById("payment-rows");
+    body.innerHTML = UI.skeletonRows(8);
+    try {
+      const rows = API.rowsOf(await API.get("/api/fees/payments/"));
+      body.innerHTML = rows.length
+        ? rows.map((p) =>
+            "<tr>" +
+            UI.td(p.receipt_number) +
+            UI.td(p.admission_no || p.student) +
+            UI.td(p.fee_name || "—") +
+            UI.td(p.method_label || p.payment_method) +
+            UI.td(p.reference || "—") +
+            UI.td(UI.money(p.amount_paid), "num") +
+            "<td>" + UI.statusPill(p.status) + "</td>" +
+            '<td class="num"><a class="btn btn--ghost btn--sm" target="_blank" rel="noopener" ' +
+              'href="/api/fees/payments/' + p.id + '/receipt/">Receipt</a></td>' +
+            "</tr>"
+          ).join("")
+        : UI.emptyRow(8, "No payments recorded", "Record the first payment to see it here.");
+    } catch (err) {
+      body.innerHTML = UI.emptyRow(8, "Could not load payments", err.message);
+    }
+  }
+
+  async function fillPickers() {
+    try {
+      const [students, fees] = await Promise.all([
+        API.get("/api/students/?page_size=500"),
+        API.get("/api/fees/?page_size=200"),
+      ]);
+
+      document.getElementById("p-student").innerHTML =
+        API.rowsOf(students).map((s) =>
+          '<option value="' + s.id + '">' +
+          UI.escapeHTML(s.admission_no + " — " + (s.student_name || "")) + "</option>"
+        ).join("");
+
+      document.getElementById("p-fee").innerHTML =
+        API.rowsOf(fees).map((f) =>
+          '<option value="' + f.id + '" data-amount="' + f.amount + '">' +
+          UI.escapeHTML(f.name + " (" + f.amount + ")") + "</option>"
+        ).join("");
+    } catch (err) {
+      UI.toast("Could not load students or fees: " + err.message, "warn");
+    }
+  }
+
+  // Prefill the amount from the chosen fee - most payments are for the full sum.
+  document.getElementById("p-fee").addEventListener("change", (event) => {
+    const amount = event.target.selectedOptions[0].dataset.amount;
+    const field = document.getElementById("p-amount");
+    if (amount && !field.value) field.value = amount;
+  });
+
+  document.getElementById("record-btn").onclick = () => {
+    UI.clearFormErrors(form);
+    form.reset();
+    applyMethod();
+    modal.showModal();
+  };
+  document.getElementById("pay-cancel").onclick = () => modal.close();
+  document.getElementById("pay-close").onclick = () => modal.close();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    UI.clearFormErrors(form);
+
+    await UI.submitting(document.getElementById("pay-save"), async () => {
+      try {
+        const payment = await API.post("/api/fees/payments/", UI.readForm(form));
+        UI.toast("Payment recorded. Receipt " + payment.receipt_number + ".");
+        modal.close();
+        loadPayments();
+        loadSummary();
+      } catch (err) {
+        UI.showFormErrors(form, err);
+      }
+    });
+  });
+
+  (async function init() {
+    await loadMethods();
+    loadSummary();
+    loadStructures();
+    loadPayments();
+    if (Session.isAdmin()) fillPickers();
   })();
 </script>
 {% endblock %}

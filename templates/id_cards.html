@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}ID cards · Student Management System{% endblock %}
+{% block heading %}ID cards{% endblock %}
+
+{% block extra_head %}
+<style>
+  .cards { display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); }
+
+  /* Sized to CR80, the standard plastic card, so printed sheets can be cut
+     to fit an ordinary badge holder. */
+  .id-card {
+    width: 100%; max-width: 340px;
+    aspect-ratio: 85.6 / 54;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: grid; grid-template-columns: 1fr 92px;
+    overflow: hidden;
+  }
+  .id-card__body { padding: 12px 14px; display: flex; flex-direction: column; min-width: 0; }
+  .id-card__org { font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--brand); }
+  .id-card__name { font-weight: 650; font-size: .95rem; margin-top: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .id-card__meta { font-size: .7rem; color: var(--ink-muted); line-height: 1.5; }
+  .id-card__qr { display: grid; place-items: center; background: #fff;
+    border-left: 1px solid var(--line); padding: 6px; }
+  .id-card__qr img { width: 100%; height: auto; }
+
+  @media print {
+    .cards { grid-template-columns: repeat(2, 1fr); gap: 10mm; }
+    .id-card { border: 1px dashed #999; page-break-inside: avoid; }
+    .id-card__org { color: #000; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head no-print">
+  <div>
+    <h1>ID cards</h1>
+    <p class="muted small" style="margin:0" id="summary">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <input class="input" id="search" type="search" placeholder="Filter by name or number"
+           autocomplete="off">
+    <button class="btn btn--ghost" id="issue-btn">Issue missing cards</button>
+    <button class="btn btn--primary" id="print-btn">Print</button>
+  </div>
+</div>
+
+<div class="no-print" style="margin-bottom:14px">
+  <div class="card" style="background:var(--info-bg);border-color:transparent">
+    <div class="card__body" style="padding:11px 14px">
+      <p class="small" style="margin:0">
+        Each card carries a unique code, not the admission number. Print on card
+        stock and cut along the dashed lines.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div id="empty-state" hidden>
+  <div class="card"><div class="empty">
+    <div class="empty__title">No cards issued yet</div>
+    <div>Use “Issue missing cards” to generate one for every active student.</div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let cards = [];
+
+  function cardHTML(card) {
+    const brand = Brand.current;
+    const org = brand.organization_name || "Student Management";
+    const name = card.student_name || card.admission_no;
+
+    return (
+      '<article class="id-card">' +
+        '<div class="id-card__body">' +
+          '<div class="id-card__org">' + UI.escapeHTML(org) + "</div>" +
+          '<div class="id-card__name">' + UI.escapeHTML(name) + "</div>" +
+          '<div class="id-card__meta" style="margin-top:auto">' +
+            UI.escapeHTML(Brand.term("admission_no")) + " " +
+            UI.escapeHTML(card.admission_no) +
+            (card.is_active ? "" : "<br><strong>INACTIVE</strong>") +
+          "</div>" +
+        "</div>" +
+        '<div class="id-card__qr">' +
+          '<img alt="QR code for ' + UI.escapeHTML(card.admission_no) + '" ' +
+          'src="' + UI.escapeHTML(card.image_url) + '" loading="lazy">' +
+        "</div>" +
+      "</article>"
+    );
+  }
+
+  function render() {
+    const term = document.getElementById("search").value.trim().toLowerCase();
+    const shown = cards.filter((c) =>
+      !term ||
+      (c.admission_no || "").toLowerCase().includes(term) ||
+      (c.student_name || "").toLowerCase().includes(term)
+    );
+
+    document.getElementById("cards").innerHTML = shown.map(cardHTML).join("");
+    document.getElementById("empty-state").hidden = shown.length > 0;
+    document.getElementById("summary").textContent =
+      shown.length + " of " + cards.length + " cards";
+  }
+
+  async function load() {
+    document.getElementById("cards").innerHTML =
+      '<div class="card" style="height:170px"><div class="skeleton" ' +
+      'style="height:100%;border-radius:14px"></div></div>'.repeat(4);
+    try {
+      // Cards print in batches; ask for a large page rather than 25 at a time.
+      cards = API.rowsOf(await API.get("/api/attendance/qr-codes/?page_size=500"));
+      render();
+    } catch (err) {
+      document.getElementById("cards").innerHTML = "";
+      UI.toast(err.message, "danger");
+    }
+  }
+
+  document.getElementById("search").addEventListener("input", UI.debounce(render, 200));
+  document.getElementById("print-btn").onclick = () => window.print();
+
+  document.getElementById("issue-btn").addEventListener("click", async (event) => {
+    await UI.submitting(event.target, async () => {
+      try {
+        const result = await API.post("/api/attendance/qr-codes/issue-all/", {});
+        UI.toast(
+          result.issued
+            ? "Issued " + result.issued + " new card" + (result.issued === 1 ? "" : "s") + "."
+            : "Every active student already has a card.",
+          result.issued ? "ok" : "warn"
+        );
+        load();
+      } catch (err) {
+        UI.toast(err.message, "danger");
+      }
+    });
+  });
+
+  load();
+</script>
+{% endblock %}

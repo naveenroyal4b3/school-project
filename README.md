@@ -175,13 +175,89 @@ registration and login.
 
 ## Pages
 
-`/login/`, `/` (dashboard), `/students/`, `/attendance/`, `/fees/`,
-`/tracking/` (live map), `/admin/` (Django admin).
+`/login/`, `/` (dashboard), `/students/`, `/attendance/`, `/scanner/`,
+`/id-cards/`, `/fees/`, `/results/`, `/tracking/`, `/admin/`.
+
+The interface is a design system in `static/css/app.css` driven by CSS custom
+properties, so a tenant rebrands by changing tokens rather than by overriding
+component styles. It is responsive down to a phone - parents and drivers are
+rarely at a desk - with the sidebar becoming a drawer, and it follows the
+viewer's light or dark preference.
+
+Lists show skeletons while loading, a labelled empty state when there is
+nothing, and the server's own field errors next to the offending input. Every
+value rendered from the API is escaped: student names and remarks are user
+input.
 
 Bus tracking uses OpenStreetMap via Leaflet - the free option in the document's
-technology stack, with no API key to manage.
+technology stack, with no API key to manage. It stops polling while the tab is
+hidden rather than draining a phone battery in a bag.
 
 ---
+
+## ID cards and automatic attendance
+
+Every student carries a card holding a random UUID - not their admission
+number, which is sequential and guessable and would let anyone forge a scan for
+a student who was never there.
+
+`POST /api/attendance/scan/` serves both readers:
+
+- `context: CAMPUS` (default) marks the day's attendance automatically. Only
+  the first IN of the day sets the status, so a student who steps out and scans
+  back in after the cutoff is not downgraded from present to late by their own
+  second scan.
+- `context: BUS` records a boarding.
+
+Both alert the guardian. The status compares the arrival against
+`Organization.late_after_time`, held per tenant because a school and a coaching
+centre on the same deployment start at different hours.
+
+Cards are rendered on demand at
+`/api/attendance/qr-codes/<id>/image/` rather than stored, so reissuing a card
+cannot leave a stale image behind. `/id-cards/` prints them at CR80 size, and
+`/scanner/` reads them with the device camera (or by typed code, for a reader
+with no camera).
+
+Note that browsers only grant camera access over HTTPS or on localhost.
+
+## Payments
+
+All the rails in common use in India: cash, UPI, debit and credit cards, net
+banking, NEFT, RTGS, IMPS, wallets, cheques and demand drafts.
+
+Each carries a different reference, and each is required, because a payment
+that cannot be traced to a bank statement is worthless when a parent disputes
+it - UPI needs the payer's VPA, bank transfers need the UTR, cheques and DDs
+need the instrument number, and card and wallet payments need the gateway
+reference. RTGS enforces the RBI floor of Rs 2,00,000.
+
+`GET /api/fees/methods/` describes the rails so the payment form shows the
+right reference field without a second copy of the rules in JavaScript.
+
+An online gateway plugs in behind `PAYMENT_GATEWAY`, the same pattern as the
+SMS sender. The default console gateway settles nothing and must never run in
+production.
+
+## Multi-tenancy and branding
+
+One deployment serves many institutions. `GET /api/organizations/me/` returns
+the caller's colours, logo and vocabulary; the front end caches it so
+navigation never flashes the default theme, and refreshes it in the background
+so a rebrand lands without anyone signing out.
+
+Wording follows the organization type, because these institutions do not use
+the same words for the same things:
+
+| Type | Faculty | Class group | Guardian |
+| --- | --- | --- | --- |
+| School | Teacher | Class | Parent |
+| College | Lecturer | Course | Guardian |
+| University | Professor | Programme | Guardian |
+| Coaching Center / Training Institute | Trainer | Batch | Guardian |
+
+Text on the tenant's brand colour is chosen by relative luminance, so a client
+who picks a pale colour still gets readable navigation.
 
 ## Notifications
 
@@ -203,9 +279,14 @@ no network calls and incur no charges. To go live, implement a class with a
 python manage.py test
 ```
 
-55 tests covering access control, multi-tenant isolation, the QR scan flow,
-bulk attendance atomicity, receipt numbering, grade calculation, result
+79 tests covering access control, multi-tenant isolation, automatic attendance
+from card scans, the late cutoff, bulk attendance atomicity, every Indian
+payment rail's reference rules, receipt numbering, grade calculation, result
 visibility, trip lifecycle, live tracking and report arithmetic.
+
+Tests swap in a fast password hasher. PBKDF2's 1.2 million iterations are
+exactly what production wants and exactly what makes a suite creating hundreds
+of users take minutes.
 
 ---
 
@@ -221,6 +302,7 @@ committed - `.env` is gitignored and has never been in the history.
 | `ALLOWED_HOSTS` | Comma-separated hostnames |
 | `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | Database; defaults to SQLite |
 | `SMS_BACKEND` | Dotted path to an SMS backend; empty logs instead |
+| `PAYMENT_GATEWAY` | Dotted path to a gateway; empty uses the console stub |
 | `EMAIL_BACKEND`, `DEFAULT_FROM_EMAIL` | Email delivery |
 
 `gunicorn` is installed in the Docker image rather than listed in

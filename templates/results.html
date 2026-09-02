@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Results · Student Management System{% endblock %}
+{% block heading %}Examinations &amp; results{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Examinations &amp; results</h1>
+    <p class="muted small" style="margin:0" id="subtitle">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <select class="select" id="exam-filter" aria-label="Filter by exam">
+      <option value="">All exams</option>
+    </select>
+  </div>
+</div>
+
+<div class="grid grid--stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="stat__label">Results recorded</div>
+    <div class="stat__value" id="s-total">—</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Pass rate</div>
+    <div class="stat__value" id="s-rate">—</div>
+    <div class="stat__meta" id="s-passfail">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Average marks</div>
+    <div class="stat__value" id="s-avg">—</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Top grade band</div>
+    <div class="stat__value" id="s-top">—</div>
+    <div class="stat__meta" id="s-top-meta">&nbsp;</div>
+  </div>
+</div>
+
+<div class="grid grid--halves">
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">Grade distribution</h2></div>
+    <div class="card__body"><div id="grade-chart"></div></div>
+  </section>
+
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">Exams</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Exam</th><th>Type</th><th>Dates</th><th>Status</th></tr></thead>
+        <tbody id="exam-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <div class="card__head"><h2 style="margin:0">Results</h2></div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th data-term="admission_no">Admission no.</th><th>Subject</th>
+            <th class="num">Marks</th><th>Grade</th><th>Outcome</th></tr>
+      </thead>
+      <tbody id="result-rows"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let results = [];
+
+  const GRADE_TONE = { "A+": "ok", A: "ok", "B+": "info", B: "info",
+                       C: "warn", D: "warn", F: "danger" };
+
+  function renderResults() {
+    const examId = document.getElementById("exam-filter").value;
+    const shown = examId
+      ? results.filter((r) => String(r.exam) === examId)
+      : results;
+
+    document.getElementById("result-rows").innerHTML = shown.length
+      ? shown.map((r) =>
+          "<tr>" + UI.td(r.admission_no) + UI.td(r.subject_name || "—") +
+          UI.td(r.marks_obtained, "num") +
+          "<td>" + UI.pill(r.grade, GRADE_TONE[r.grade] || "muted") + "</td>" +
+          "<td>" + (r.is_pass ? UI.pill("Pass", "ok") : UI.pill("Fail", "danger")) + "</td>" +
+          "</tr>"
+        ).join("")
+      : UI.emptyRow(5, "No results to show",
+          "Results stay hidden until the exam is published.");
+  }
+
+  function renderGrades(byGrade) {
+    const total = byGrade.reduce((sum, row) => sum + row.count, 0);
+    const host = document.getElementById("grade-chart");
+
+    if (!total) {
+      host.innerHTML = '<div class="empty"><div class="empty__title">Nothing to chart</div>' +
+        "<div>Grades appear once results are entered.</div></div>";
+      return;
+    }
+
+    // A labelled bar per band reads better than a pie at this size, and stays
+    // legible for a screen reader because every value is written out.
+    const order = ["A+", "A", "B+", "B", "C", "D", "F"];
+    const sorted = [...byGrade].sort(
+      (a, b) => order.indexOf(a.grade) - order.indexOf(b.grade)
+    );
+
+    host.innerHTML = sorted.map((row) => {
+      const share = Math.round((row.count / total) * 100);
+      return (
+        '<div style="margin-bottom:9px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:.8125rem">' +
+            "<span><strong>" + UI.escapeHTML(row.grade) + "</strong></span>" +
+            '<span class="muted">' + row.count + " · " + share + "%</span>" +
+          "</div>" +
+          '<div style="height:7px;border-radius:999px;background:var(--surface-sunken);' +
+            'margin-top:3px;overflow:hidden">' +
+            '<div style="width:' + share + '%;height:100%;background:var(--' +
+              (GRADE_TONE[row.grade] === "danger" ? "danger"
+               : GRADE_TONE[row.grade] === "warn" ? "warn" : "ok") + ')"></div>' +
+          "</div>" +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  (async function load() {
+    document.getElementById("result-rows").innerHTML = UI.skeletonRows(5);
+    document.getElementById("exam-rows").innerHTML = UI.skeletonRows(4, 3);
+
+    try {
+      const [report, exams, list] = await Promise.all([
+        API.get("/api/reports/exams/"),
+        API.get("/api/examinations/"),
+        API.get("/api/examinations/results/?page_size=500"),
+      ]);
+
+      document.getElementById("s-total").textContent = report.results_recorded;
+      document.getElementById("s-rate").textContent = report.pass_rate + "%";
+      document.getElementById("s-passfail").textContent =
+        report.passed + " passed · " + report.failed + " failed";
+      document.getElementById("s-avg").textContent = report.average_marks;
+
+      const top = [...report.by_grade].sort((a, b) => b.count - a.count)[0];
+      document.getElementById("s-top").textContent = top ? top.grade : "—";
+      document.getElementById("s-top-meta").textContent =
+        top ? top.count + " students" : "";
+
+      renderGrades(report.by_grade);
+
+      const examRows = API.rowsOf(exams);
+      document.getElementById("exam-rows").innerHTML = examRows.length
+        ? examRows.map((e) =>
+            "<tr>" + UI.td(e.name) +
+            UI.td((e.exam_type || "").replace(/_/g, " ").toLowerCase()) +
+            UI.td(UI.formatDate(e.start_date) + " – " + UI.formatDate(e.end_date)) +
+            "<td>" + (e.is_published ? UI.pill("Published", "ok")
+                                     : UI.pill("Draft", "muted")) + "</td>" +
+            "</tr>"
+          ).join("")
+        : UI.emptyRow(4, "No exams yet", "");
+
+      document.getElementById("exam-filter").innerHTML =
+        '<option value="">All exams</option>' +
+        examRows.map((e) =>
+          '<option value="' + e.id + '">' + UI.escapeHTML(e.name) + "</option>"
+        ).join("");
+
+      results = API.rowsOf(list);
+      document.getElementById("subtitle").textContent =
+        results.length + " results visible to you";
+      renderResults();
+    } catch (err) {
+      document.getElementById("result-rows").innerHTML =
+        UI.emptyRow(5, "Could not load results", err.message);
+    }
+  })();
+
+  document.getElementById("exam-filter").addEventListener("change", renderResults);
+</script>
+{% endblock %}

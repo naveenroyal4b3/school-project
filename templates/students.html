@@ -1,71 +1,282 @@
 {% extends "base.html" %}
-{% block title %}Students - Smart SMS{% endblock %}
+{% block title %}Students · Student Management System{% endblock %}
+{% block heading %}Students{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h3 mb-0">Students</h1>
-  <input class="form-control w-auto" id="search" placeholder="Filter by name or admission no.">
+<div class="page-head">
+  <div>
+    <h1>Students</h1>
+    <p class="muted small" style="margin:0" id="result-count">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <label class="sr-only" for="search" style="position:absolute;left:-9999px">Search students</label>
+    <input class="input" id="search" type="search" placeholder="Search name or number"
+           autocomplete="off">
+    <select class="select" id="status-filter" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      <option value="active" selected>Active only</option>
+      <option value="inactive">Inactive only</option>
+    </select>
+    <button class="btn btn--primary" id="add-btn"
+            data-roles="SUPER_ADMIN,ORGANIZATION_ADMIN">Add student</button>
+  </div>
 </div>
 
-<div class="card stat-card">
+<section class="card">
   <div class="table-wrap">
-    <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light">
+    <table class="data">
+      <thead>
         <tr>
-          <th>Admission no.</th>
+          <th data-term="admission_no">Admission no.</th>
+          <th>Name</th>
           <th>Roll no.</th>
           <th>Gender</th>
           <th>Date of birth</th>
           <th>Status</th>
+          <th></th>
         </tr>
       </thead>
-      <tbody id="student-rows">
-        <tr><td colspan="5" class="text-muted">Loading...</td></tr>
-      </tbody>
+      <tbody id="rows"></tbody>
     </table>
   </div>
-</div>
+  <div class="pager" id="pager" hidden>
+    <span class="muted small" id="page-label"></span>
+    <div class="toolbar">
+      <button class="btn btn--ghost btn--sm" id="prev-btn">Previous</button>
+      <button class="btn btn--ghost btn--sm" id="next-btn">Next</button>
+    </div>
+  </div>
+</section>
+
+<dialog class="modal" id="student-modal" aria-labelledby="modal-title">
+  <form id="student-form" method="dialog">
+    <div class="modal__head">
+      <h2 id="modal-title" style="margin:0">Add student</h2>
+      <button type="button" class="toast__close" id="close-modal" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modal__body">
+      <div class="field">
+        <label for="f-user">Linked user account</label>
+        <select class="select" id="f-user" name="user" required></select>
+        <div class="field__hint">
+          The sign-in account for this student. Create it in Django admin first
+          if it is not listed.
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label for="f-admission">Admission no.</label>
+          <input class="input" id="f-admission" name="admission_no" required>
+        </div>
+        <div class="field">
+          <label for="f-roll">Roll number</label>
+          <input class="input" id="f-roll" name="roll_number" required>
+        </div>
+        <div class="field">
+          <label for="f-dob">Date of birth</label>
+          <input class="input" id="f-dob" name="date_of_birth" type="date" required>
+        </div>
+        <div class="field">
+          <label for="f-gender">Gender</label>
+          <select class="select" id="f-gender" name="gender" required>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-admitted">Admission date</label>
+          <input class="input" id="f-admitted" name="admission_date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="f-parent" data-term="guardian">Guardian</label>
+          <select class="select" id="f-parent" name="parent">
+            <option value="">Not linked</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="f-address">Address</label>
+        <textarea class="input" id="f-address" name="address" rows="2" required></textarea>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" id="cancel-btn">Cancel</button>
+      <button type="submit" class="btn btn--primary" id="save-btn">Save student</button>
+    </div>
+  </form>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  let students = [];
+  const COLUMNS = 7;
+  const rowsBody = document.getElementById("rows");
+  const modal = document.getElementById("student-modal");
+  const form = document.getElementById("student-form");
 
-  function render(rows) {
-    const body = document.getElementById("student-rows");
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="5" class="text-muted">No students found.</td></tr>';
-      return;
-    }
-    body.innerHTML = rows.map((s) =>
-      "<tr>" +
-      "<td>" + s.admission_no + "</td>" +
-      "<td>" + s.roll_number + "</td>" +
-      "<td>" + (s.gender || "-") + "</td>" +
-      "<td>" + (s.date_of_birth || "-") + "</td>" +
-      "<td>" + (s.is_active
-        ? '<span class="badge text-bg-success">Active</span>'
-        : '<span class="badge text-bg-secondary">Inactive</span>') + "</td>" +
-      "</tr>"
-    ).join("");
+  let page = 1;
+  let payload = null;
+  let editingId = null;
+
+  function studentName(s) {
+    return s.student_name || s.full_name || s.admission_no;
   }
 
-  document.getElementById("search").addEventListener("input", (event) => {
-    const term = event.target.value.toLowerCase();
-    render(students.filter((s) =>
-      (s.admission_no || "").toLowerCase().includes(term) ||
-      (s.roll_number || "").toLowerCase().includes(term)
-    ));
+  function render() {
+    const rows = API.rowsOf(payload);
+    const total = API.countOf(payload);
+
+    document.getElementById("result-count").textContent = total
+      ? total + (total === 1 ? " student" : " students")
+      : "";
+
+    if (!rows.length) {
+      rowsBody.innerHTML = UI.emptyRow(
+        COLUMNS,
+        page > 1 ? "Nothing on this page" : "No students yet",
+        page > 1 ? "Go back a page." : "Add your first student to get started."
+      );
+    } else {
+      rowsBody.innerHTML = rows.map((s) =>
+        "<tr>" +
+        UI.td(s.admission_no) +
+        UI.td(studentName(s)) +
+        UI.td(s.roll_number) +
+        UI.td(s.gender || "—") +
+        UI.td(UI.formatDate(s.date_of_birth)) +
+        "<td>" + (s.is_active ? UI.pill("Active", "ok") : UI.pill("Inactive", "muted")) + "</td>" +
+        '<td class="num">' +
+          (Session.isAdmin()
+            ? '<button class="btn btn--ghost btn--sm" data-edit="' + s.id + '">Edit</button>'
+            : "") +
+        "</td></tr>"
+      ).join("");
+    }
+
+    const pager = document.getElementById("pager");
+    const paginated = payload && !Array.isArray(payload);
+    pager.hidden = !paginated || total <= rows.length;
+    if (!pager.hidden) {
+      const from = (page - 1) * 25 + 1;
+      document.getElementById("page-label").textContent =
+        "Showing " + from + "–" + (from + rows.length - 1) + " of " + total;
+      document.getElementById("prev-btn").disabled = !payload.previous;
+      document.getElementById("next-btn").disabled = !payload.next;
+    }
+  }
+
+  async function load() {
+    rowsBody.innerHTML = UI.skeletonRows(COLUMNS);
+
+    const params = new URLSearchParams({ page });
+    const term = document.getElementById("search").value.trim();
+    if (term) params.set("search", term);
+
+    const filter = document.getElementById("status-filter").value;
+    if (filter) params.set("is_active", filter === "active" ? "true" : "false");
+
+    try {
+      payload = await API.get("/api/students/?" + params);
+      render();
+    } catch (err) {
+      rowsBody.innerHTML = UI.emptyRow(COLUMNS, "Could not load students", err.message);
+    }
+  }
+
+  document.getElementById("search").addEventListener(
+    "input", UI.debounce(() => { page = 1; load(); }, 350)
+  );
+  document.getElementById("status-filter").addEventListener(
+    "change", () => { page = 1; load(); }
+  );
+  document.getElementById("prev-btn").onclick = () => { page--; load(); };
+  document.getElementById("next-btn").onclick = () => { page++; load(); };
+
+  /* ---- Add / edit ---- */
+
+  async function fillPickers() {
+    const userSelect = document.getElementById("f-user");
+    const parentSelect = document.getElementById("f-parent");
+
+    // Only accounts not already attached to a student are offered, so the
+    // one-to-one cannot be violated from the UI.
+    try {
+      const taken = new Set(API.rowsOf(await API.get("/api/students/?page_size=1000"))
+        .map((s) => s.user));
+      const parents = API.rowsOf(await API.get("/api/parents/"));
+
+      parentSelect.innerHTML = '<option value="">Not linked</option>' +
+        parents.map((p) =>
+          '<option value="' + p.id + '">' + UI.escapeHTML(p.full_name || p.id) + "</option>"
+        ).join("");
+
+      if (!userSelect.dataset.loaded) {
+        userSelect.innerHTML = '<option value="">Select an account…</option>';
+        userSelect.dataset.loaded = "1";
+      }
+      userSelect.dataset.taken = JSON.stringify([...taken]);
+    } catch (err) {
+      UI.toast("Could not load linked records: " + err.message, "warn");
+    }
+  }
+
+  function openModal(student) {
+    editingId = student ? student.id : null;
+    document.getElementById("modal-title").textContent =
+      student ? "Edit student" : "Add student";
+    UI.clearFormErrors(form);
+    form.reset();
+
+    // A linked account cannot be reassigned once a student exists.
+    document.getElementById("f-user").disabled = Boolean(student);
+
+    if (student) {
+      Object.entries(student).forEach(([key, value]) => {
+        const input = form.querySelector('[name="' + key + '"]');
+        if (input && value !== null) input.value = value;
+      });
+    }
+    modal.showModal();
+  }
+
+  document.getElementById("add-btn").onclick = () => openModal(null);
+  document.getElementById("cancel-btn").onclick = () => modal.close();
+  document.getElementById("close-modal").onclick = () => modal.close();
+
+  rowsBody.addEventListener("click", (event) => {
+    const id = event.target.dataset && event.target.dataset.edit;
+    if (!id) return;
+    openModal(API.rowsOf(payload).find((s) => String(s.id) === id));
   });
 
-  (async function load() {
-    const data = await API.getJSON("/api/students/");
-    if (!data) {
-      showAlert("Could not load students.");
-      return;
-    }
-    students = Array.isArray(data) ? data : (data.results || []);
-    render(students);
-  })();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    UI.clearFormErrors(form);
+
+    const body = UI.readForm(form);
+    await UI.submitting(document.getElementById("save-btn"), async () => {
+      try {
+        if (editingId) {
+          await API.patch("/api/students/" + editingId + "/", body);
+          UI.toast("Student updated.");
+        } else {
+          await API.post("/api/students/", body);
+          UI.toast("Student added.");
+        }
+        modal.close();
+        load();
+      } catch (err) {
+        UI.showFormErrors(form, err);
+      }
+    });
+  });
+
+  if (Session.isAdmin()) fillPickers();
+  load();
 </script>
 {% endblock %}

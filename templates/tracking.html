@@ -1,86 +1,162 @@
 {% extends "base.html" %}
-{% block title %}Bus Tracking - Smart SMS{% endblock %}
+{% block title %}Bus tracking · Student Management System{% endblock %}
+{% block heading %}Live bus tracking{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  #map { height: min(62vh, 540px); border-radius: var(--radius-lg); }
+  .leaflet-container { font: inherit; background: var(--surface-sunken); }
+  .bus-row { cursor: pointer; }
+  .bus-row.is-selected { background: var(--brand-light); }
+</style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h3 mb-0">Live bus tracking</h1>
-  <span class="text-muted small" id="last-updated"></span>
+<div class="page-head">
+  <div>
+    <h1>Live bus tracking</h1>
+    <p class="muted small" style="margin:0">
+      Positions refresh every 10 seconds while this page is open.
+    </p>
+  </div>
+  <div class="toolbar">
+    <span class="pill pill--muted" id="live-state">Connecting…</span>
+    <button class="btn btn--ghost" id="refresh-btn">Refresh now</button>
+  </div>
 </div>
 
-<div class="row g-3">
-  <div class="col-lg-8">
-    <div class="card stat-card p-0 overflow-hidden">
-      <div id="map" style="height: 480px;"></div>
+<div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(280px,1fr)">
+  <section class="card" style="overflow:hidden">
+    <div id="map" role="application" aria-label="Map of bus positions"></div>
+  </section>
+
+  <section class="card">
+    <div class="card__head">
+      <h2 style="margin:0">Fleet</h2>
+      <span class="muted small" id="fleet-count"></span>
     </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card stat-card">
-      <div class="table-wrap">
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr><th>Bus</th><th>Route</th><th>Speed</th></tr>
-          </thead>
-          <tbody id="bus-rows">
-            <tr><td colspan="3" class="text-muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Bus</th><th>Route</th><th class="num">Speed</th></tr></thead>
+        <tbody id="bus-rows"></tbody>
+      </table>
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  // OpenStreetMap, the free option named in the document's technology stack -
-  // no API key needed, unlike Google Maps.
-  const map = L.map("map").setView([12.9716, 77.5946], 12);
+  // OpenStreetMap: the free option in the technology stack, and unlike Google
+  // Maps it needs no API key or billing account to run.
+  const map = L.map("map", { zoomControl: true }).setView([20.5937, 78.9629], 5);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "&copy; OpenStreetMap contributors",
     maxZoom: 19,
   }).addTo(map);
 
   const markers = {};
+  let hasFitBounds = false;
+  let timer = null;
+
+  function setState(text, kind) {
+    const el = document.getElementById("live-state");
+    el.textContent = text;
+    el.className = "pill pill--" + kind;
+  }
+
+  function focusBus(id) {
+    const marker = markers[id];
+    if (!marker) {
+      UI.toast("That bus has not reported a position yet.", "warn");
+      return;
+    }
+    map.setView(marker.getLatLng(), 15);
+    marker.openPopup();
+    document.querySelectorAll(".bus-row").forEach((row) => {
+      row.classList.toggle("is-selected", row.dataset.bus === String(id));
+    });
+  }
 
   async function refresh() {
-    const buses = await API.getJSON("/api/transport/tracking/");
-    if (!buses) return;
+    let buses;
+    try {
+      buses = await API.get("/api/transport/tracking/");
+      setState("Live", "ok");
+    } catch (err) {
+      setState("Offline", "danger");
+      return;
+    }
 
     const body = document.getElementById("bus-rows");
-    body.innerHTML = buses.length
-      ? buses.map(function (b) {
-          return "<tr><td>" + b.registration_number + "</td><td>" +
-            (b.route || "-") + "</td><td>" +
-            (b.speed_kmph !== null ? b.speed_kmph + " km/h" : "-") + "</td></tr>";
-        }).join("")
-      : '<tr><td colspan="3" class="text-muted">No buses.</td></tr>';
+    document.getElementById("fleet-count").textContent =
+      buses.length + (buses.length === 1 ? " bus" : " buses");
 
-    buses.forEach(function (bus) {
-      // A bus that has not reported a position yet has no marker to place.
+    body.innerHTML = buses.length
+      ? buses.map((b) =>
+          '<tr class="bus-row" data-bus="' + b.bus_id + '">' +
+          "<td><strong>" + UI.escapeHTML(b.registration_number) + "</strong>" +
+            (b.driver ? '<br><span class="muted small">' +
+              UI.escapeHTML(b.driver) + "</span>" : "") + "</td>" +
+          UI.td(b.route || "—") +
+          UI.td(b.speed_kmph !== null ? b.speed_kmph + " km/h" : "—", "num") +
+          "</tr>"
+        ).join("")
+      : UI.emptyRow(3, "No buses", "Add a bus to see it here.");
+
+    const points = [];
+    buses.forEach((bus) => {
+      // A bus with no ping yet still lists, but there is nothing to plot.
       if (bus.latitude === null || bus.longitude === null) return;
       const point = [parseFloat(bus.latitude), parseFloat(bus.longitude)];
+      points.push(point);
+
+      const label =
+        "<strong>" + UI.escapeHTML(bus.registration_number) + "</strong><br>" +
+        UI.escapeHTML(bus.route || "No route") + "<br>" +
+        '<span style="color:#666">' + UI.formatDateTime(bus.recorded_at) + "</span>";
 
       if (markers[bus.bus_id]) {
-        markers[bus.bus_id].setLatLng(point);
+        markers[bus.bus_id].setLatLng(point).setPopupContent(label);
       } else {
-        markers[bus.bus_id] = L.marker(point)
-          .addTo(map)
-          .bindPopup(bus.registration_number + "<br>" + (bus.route || ""));
+        markers[bus.bus_id] = L.marker(point).addTo(map).bindPopup(label);
       }
     });
 
-    document.getElementById("last-updated").textContent =
-      "Updated " + new Date().toLocaleTimeString();
+    // Fit once, then leave the view alone so a refresh never yanks the map
+    // away from wherever the user has panned.
+    if (points.length && !hasFitBounds) {
+      map.fitBounds(L.latLngBounds(points).pad(0.25), { maxZoom: 15 });
+      hasFitBounds = true;
+    }
   }
 
+  document.getElementById("bus-rows").addEventListener("click", (event) => {
+    const row = event.target.closest(".bus-row");
+    if (row) focusBus(row.dataset.bus);
+  });
+
+  document.getElementById("refresh-btn").onclick = refresh;
+
+  function startPolling() {
+    stopPolling();
+    timer = setInterval(refresh, 10000);
+  }
+  function stopPolling() {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  // Stop polling while the tab is hidden: a backgrounded page does not need
+  // to keep the phone's radio busy, and it drains battery on the bus.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { stopPolling(); setState("Paused", "muted"); }
+    else { refresh(); startPolling(); }
+  });
+
+  document.getElementById("bus-rows").innerHTML = UI.skeletonRows(3, 3);
   refresh();
-  // Polling rather than websockets: drivers push a location every few seconds
-  // and a 10s refresh is well inside the useful resolution for a bus.
-  setInterval(refresh, 10000);
+  startPolling();
 </script>
 {% endblock %}

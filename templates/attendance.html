@@ -1,81 +1,227 @@
 {% extends "base.html" %}
-{% block title %}Attendance - Smart SMS{% endblock %}
+{% block title %}Attendance · Student Management System{% endblock %}
+{% block heading %}Attendance{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-4">Attendance</h1>
-
-<div class="row g-3">
-  <div class="col-lg-5">
-    <div class="card stat-card p-3">
-      <h2 class="h6 text-muted">Daily report</h2>
-      <div class="input-group mb-3">
-        <input type="date" class="form-control" id="report-date">
-        <button class="btn btn-primary" id="load-report">Load</button>
-      </div>
-      <table class="table table-sm mb-0">
-        <tbody id="report-body">
-          <tr><td class="text-muted">Pick a date.</td></tr>
-        </tbody>
-      </table>
-    </div>
+<div class="page-head">
+  <div>
+    <h1>Attendance</h1>
+    <p class="muted small" style="margin:0">
+      Gate scans mark students automatically. Use the roll call for anyone missed.
+    </p>
   </div>
+  <div class="toolbar">
+    <input class="input" id="date" type="date" aria-label="Date">
+    <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+    <button class="btn btn--primary" id="rollcall-btn"
+            data-roles="SUPER_ADMIN,ORGANIZATION_ADMIN,TEACHER">Take roll call</button>
+  </div>
+</div>
 
-  <div class="col-lg-7">
-    <div class="card stat-card p-3">
-      <h2 class="h6 text-muted">Recent records</h2>
+<div class="grid grid--stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="stat__label">Present</div>
+    <div class="stat__value" id="s-present">—</div>
+    <div class="stat__meta" id="s-rate">&nbsp;</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Late</div>
+    <div class="stat__value" id="s-late">—</div>
+    <div class="stat__meta">After the cutoff</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Absent</div>
+    <div class="stat__value" id="s-absent">—</div>
+    <div class="stat__meta">Not marked in</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Bus boardings</div>
+    <div class="stat__value" id="s-bus">—</div>
+    <div class="stat__meta" id="s-bus-meta">&nbsp;</div>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card__head">
+    <h2 style="margin:0">Records</h2>
+    <select class="select" id="status-filter" aria-label="Filter by status" style="width:auto">
+      <option value="">All statuses</option>
+      <option value="PRESENT">Present</option>
+      <option value="LATE">Late</option>
+      <option value="ABSENT">Absent</option>
+      <option value="EXCUSED">Excused</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th data-term="admission_no">Admission no.</th><th>Student</th>
+            <th>Status</th><th>Marked by</th><th>Remarks</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<dialog class="modal" id="roll-modal" aria-labelledby="roll-title">
+  <form id="roll-form" method="dialog">
+    <div class="modal__head">
+      <h2 id="roll-title" style="margin:0">Roll call</h2>
+      <button type="button" class="toast__close" id="roll-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal__body">
+      <p class="muted small" style="margin-top:0">
+        Everyone starts present. Change only the exceptions, then save once.
+      </p>
+      <div class="toolbar" style="margin-bottom:12px">
+        <button type="button" class="btn btn--ghost btn--sm" data-mark="PRESENT">All present</button>
+        <button type="button" class="btn btn--ghost btn--sm" data-mark="ABSENT">All absent</button>
+      </div>
       <div class="table-wrap">
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr><th>Admission no.</th><th>Date</th><th>Status</th></tr>
-          </thead>
-          <tbody id="attendance-rows">
-            <tr><td colspan="3" class="text-muted">Loading...</td></tr>
-          </tbody>
+        <table class="data">
+          <thead><tr><th>Student</th><th>Status</th></tr></thead>
+          <tbody id="roll-rows"></tbody>
         </table>
       </div>
     </div>
-  </div>
-</div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" id="roll-cancel">Cancel</button>
+      <button type="submit" class="btn btn--primary" id="roll-save">Save roll call</button>
+    </div>
+  </form>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  function statusBadge(value) {
-    const tone = { PRESENT: "success", ABSENT: "danger", LATE: "warning", EXCUSED: "secondary" };
-    return '<span class="badge text-bg-' + (tone[value] || "secondary") + '">' + value + "</span>";
+  const dateInput = document.getElementById("date");
+  dateInput.value = new Date().toISOString().slice(0, 10);
+
+  let records = [];
+
+  function render() {
+    const filter = document.getElementById("status-filter").value;
+    const shown = filter ? records.filter((r) => r.status === filter) : records;
+    const body = document.getElementById("rows");
+
+    body.innerHTML = shown.length
+      ? shown.map((r) =>
+          "<tr>" + UI.td(r.admission_no || r.student) +
+          UI.td(r.student_name || "—") +
+          "<td>" + UI.statusPill(r.status) + "</td>" +
+          UI.td(r.marked_by ? "Staff" : "Card scan") +
+          UI.td(r.remarks || "—") + "</tr>"
+        ).join("")
+      : UI.emptyRow(5, "Nothing recorded", "No attendance matches this day and filter.");
   }
 
-  document.getElementById("report-date").value = new Date().toISOString().slice(0, 10);
+  async function load() {
+    const day = dateInput.value;
+    document.getElementById("rows").innerHTML = UI.skeletonRows(5);
 
-  document.getElementById("load-report").addEventListener("click", async function () {
-    const date = document.getElementById("report-date").value;
-    const data = await API.getJSON("/api/reports/daily/?date=" + date);
-    const body = document.getElementById("report-body");
+    try {
+      const [report, list] = await Promise.all([
+        API.get("/api/reports/daily/?date=" + day),
+        API.get("/api/attendance/?from=" + day + "&to=" + day + "&page_size=500"),
+      ]);
 
-    if (!data) {
-      body.innerHTML = '<tr><td class="text-muted">Could not load the report.</td></tr>';
-      return;
+      document.getElementById("s-present").textContent = report.academic.present;
+      document.getElementById("s-late").textContent = report.academic.late;
+      document.getElementById("s-absent").textContent = report.academic.absent;
+      document.getElementById("s-rate").textContent =
+        report.total_marked ? report.attendance_rate + "% of " + report.total_marked + " marked"
+                            : "Nothing marked";
+      document.getElementById("s-bus").textContent = report.transport.boarded;
+      document.getElementById("s-bus-meta").textContent =
+        report.transport.alighted + " alighted";
+
+      records = API.rowsOf(list);
+      render();
+    } catch (err) {
+      document.getElementById("rows").innerHTML =
+        UI.emptyRow(5, "Could not load attendance", err.message);
     }
+  }
 
-    body.innerHTML =
-      "<tr><td>Present</td><td class='text-end fw-semibold'>" + data.academic.present + "</td></tr>" +
-      "<tr><td>Absent</td><td class='text-end fw-semibold'>" + data.academic.absent + "</td></tr>" +
-      "<tr><td>Late</td><td class='text-end fw-semibold'>" + data.academic.late + "</td></tr>" +
-      "<tr><td>Attendance rate</td><td class='text-end fw-semibold'>" + data.attendance_rate + "%</td></tr>" +
-      "<tr><td>Bus boardings</td><td class='text-end fw-semibold'>" + data.transport.boarded + "</td></tr>";
+  dateInput.addEventListener("change", load);
+  document.getElementById("refresh-btn").onclick = load;
+  document.getElementById("status-filter").addEventListener("change", render);
+
+  /* ---- Roll call ---- */
+
+  const rollModal = document.getElementById("roll-modal");
+  const rollForm = document.getElementById("roll-form");
+
+  function rollRow(student) {
+    const options = ["PRESENT", "ABSENT", "LATE", "EXCUSED"].map((value) =>
+      '<option value="' + value + '">' + value.charAt(0) + value.slice(1).toLowerCase() +
+      "</option>"
+    ).join("");
+
+    return "<tr>" +
+      UI.td((student.admission_no || "") + " — " + (student.student_name || "")) +
+      '<td><select class="select" data-student="' + student.id + '">' + options + "</select></td>" +
+      "</tr>";
+  }
+
+  document.getElementById("rollcall-btn").onclick = async () => {
+    const body = document.getElementById("roll-rows");
+    body.innerHTML = UI.skeletonRows(2, 6);
+    rollModal.showModal();
+
+    try {
+      const students = API.rowsOf(await API.get("/api/students/?is_active=true&page_size=500"));
+      body.innerHTML = students.length
+        ? students.map(rollRow).join("")
+        : UI.emptyRow(2, "No active students", "");
+
+      // Pre-select what the gate scanner already recorded, so staff correct
+      // rather than re-enter a register the readers have half-filled.
+      records.forEach((r) => {
+        const select = body.querySelector('[data-student="' + r.student + '"]');
+        if (select) select.value = r.status;
+      });
+    } catch (err) {
+      body.innerHTML = UI.emptyRow(2, "Could not load students", err.message);
+    }
+  };
+
+  document.querySelectorAll("[data-mark]").forEach((button) => {
+    button.onclick = () => {
+      document.querySelectorAll("#roll-rows select").forEach((s) => {
+        s.value = button.dataset.mark;
+      });
+    };
   });
 
-  (async function load() {
-    const data = await API.getJSON("/api/attendance/");
-    const body = document.getElementById("attendance-rows");
-    const rows = Array.isArray(data) ? data : (data && data.results) || [];
+  document.getElementById("roll-cancel").onclick = () => rollModal.close();
+  document.getElementById("roll-close").onclick = () => rollModal.close();
 
-    body.innerHTML = rows.length
-      ? rows.slice(0, 25).map(function (r) {
-          return "<tr><td>" + (r.admission_no || r.student) + "</td><td>" +
-            r.date + "</td><td>" + statusBadge(r.status) + "</td></tr>";
-        }).join("")
-      : '<tr><td colspan="3" class="text-muted">No records yet.</td></tr>';
-  })();
+  rollForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const rows = [...document.querySelectorAll("#roll-rows select")].map((select) => ({
+      student: Number(select.dataset.student),
+      status: select.value,
+    }));
+
+    if (!rows.length) { rollModal.close(); return; }
+
+    await UI.submitting(document.getElementById("roll-save"), async () => {
+      try {
+        const result = await API.post("/api/attendance/bulk/", {
+          date: dateInput.value,
+          records: rows,
+        });
+        UI.toast("Marked " + result.marked + " students.");
+        rollModal.close();
+        load();
+      } catch (err) {
+        UI.toast(err.message, "danger");
+      }
+    });
+  });
+
+  load();
 </script>
 {% endblock %}

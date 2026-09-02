@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Scanner · Student Management System{% endblock %}
+{% block heading %}ID card scanner{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>ID card scanner</h1>
+    <p class="muted small" style="margin:0">
+      Point the camera at a student card. Attendance is recorded automatically.
+    </p>
+  </div>
+</div>
+
+<div class="grid grid--halves">
+  <section class="card">
+    <div class="card__head">
+      <h2 style="margin:0">Camera</h2>
+      <span class="pill pill--muted" id="camera-state">Idle</span>
+    </div>
+
+    <div class="card__body">
+      <fieldset style="border:0;padding:0;margin:0 0 14px">
+        <legend class="stat__label" style="padding:0;margin-bottom:8px">Mode</legend>
+        <div class="toolbar" role="radiogroup" aria-label="Scan mode">
+          <label class="btn btn--ghost">
+            <input type="radio" name="context" value="CAMPUS" checked> Gate
+          </label>
+          <label class="btn btn--ghost">
+            <input type="radio" name="context" value="BUS"> Bus
+          </label>
+          <label class="btn btn--ghost">
+            <input type="radio" name="direction" value="IN" checked> In
+          </label>
+          <label class="btn btn--ghost">
+            <input type="radio" name="direction" value="OUT"> Out
+          </label>
+        </div>
+      </fieldset>
+
+      <div id="reader" style="border-radius:var(--radius);overflow:hidden;
+           background:var(--surface-sunken);min-height:230px;display:grid;place-items:center">
+        <p class="muted small" style="padding:20px;text-align:center">
+          Camera is off. Start it below, or type a card code by hand.
+        </p>
+      </div>
+
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn btn--primary" id="start-btn">Start camera</button>
+        <button class="btn btn--ghost" id="stop-btn" disabled>Stop</button>
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+
+      <form id="manual-form">
+        <div class="field">
+          <label for="manual-code">Enter a card code by hand</label>
+          <div class="toolbar">
+            <input class="input" id="manual-code" name="code" style="flex:1;min-width:200px"
+                   placeholder="Card code printed on the ID" autocomplete="off">
+            <button class="btn btn--ghost" type="submit">Record</button>
+          </div>
+          <div class="field__hint">
+            Use this when a card will not scan or the device has no camera.
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card__head">
+      <h2 style="margin:0">This session</h2>
+      <button class="btn btn--ghost btn--sm" id="clear-log">Clear</button>
+    </div>
+    <div id="last-result" style="padding:16px;border-bottom:1px solid var(--line)">
+      <p class="muted small" style="margin:0">Scans appear here as they are recorded.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Student</th><th>Result</th><th>Time</th></tr></thead>
+        <tbody id="log-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  const log = [];
+  let scanner = null;
+  // A camera holds a code in frame for several seconds, which would otherwise
+  // fire the same scan dozens of times.
+  const recent = new Map();
+  const COOLDOWN_MS = 5000;
+
+  function selected(name) {
+    return document.querySelector('input[name="' + name + '"]:checked').value;
+  }
+
+  function setState(text, kind) {
+    const el = document.getElementById("camera-state");
+    el.textContent = text;
+    el.className = "pill pill--" + kind;
+  }
+
+  function renderLog() {
+    document.getElementById("log-rows").innerHTML = log.length
+      ? log.map((entry) =>
+          "<tr>" + UI.td(entry.who) +
+          "<td>" + (entry.ok ? UI.pill(entry.detail, "ok") : UI.pill(entry.detail, "danger")) + "</td>" +
+          UI.td(entry.at) + "</tr>"
+        ).join("")
+      : UI.emptyRow(3, "No scans yet", "");
+  }
+
+  function showResult(html, kind) {
+    document.getElementById("last-result").innerHTML =
+      '<div class="pill pill--' + kind + '" style="margin-bottom:8px">' +
+      (kind === "ok" ? "Recorded" : "Rejected") + "</div>" + html;
+  }
+
+  async function submitCode(code) {
+    if (!code) return;
+
+    const now = Date.now();
+    if (recent.has(code) && now - recent.get(code) < COOLDOWN_MS) return;
+    recent.set(code, now);
+
+    const context = selected("context");
+    const direction = selected("direction");
+
+    try {
+      const result = await API.post("/api/attendance/scan/", {
+        code,
+        scan_type: direction,
+        context,
+        device_id: context === "CAMPUS" ? "WEB-SCANNER" : "",
+      });
+
+      const name = result.student_name || result.student;
+      const attendance = result.attendance;
+      const detail = attendance
+        ? attendance.status
+        : (context === "BUS" ? "Bus " + direction : direction);
+
+      showResult(
+        '<div style="font-size:1.1rem;font-weight:600">' + UI.escapeHTML(name) + "</div>" +
+        '<div class="muted small">' + UI.escapeHTML(result.student) + " · " +
+        UI.escapeHTML(context === "BUS" ? "Bus " + direction : "Gate " + direction) + "</div>" +
+        (attendance
+          ? '<div style="margin-top:8px">' + UI.statusPill(attendance.status) +
+            ' <span class="muted small">marked for ' + UI.formatDate(attendance.date) + "</span></div>"
+          : '<div class="muted small" style="margin-top:8px">' +
+            (direction === "OUT" ? "Exit logged." : "Logged.") + "</div>"),
+        "ok"
+      );
+
+      log.unshift({ who: name, detail, ok: true, at: new Date().toLocaleTimeString("en-IN") });
+      if (navigator.vibrate) navigator.vibrate(40);
+    } catch (err) {
+      showResult('<div class="muted">' + UI.escapeHTML(err.message) + "</div>", "danger");
+      log.unshift({
+        who: "—", detail: err.status === 404 ? "Unknown card" : err.message,
+        ok: false, at: new Date().toLocaleTimeString("en-IN"),
+      });
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+    }
+
+    log.length = Math.min(log.length, 40);
+    renderLog();
+  }
+
+  document.getElementById("start-btn").addEventListener("click", async () => {
+    if (!window.Html5Qrcode) {
+      UI.toast("Scanner library did not load. Use manual entry.", "warn");
+      return;
+    }
+    try {
+      setState("Starting", "warn");
+      document.getElementById("reader").innerHTML = "";
+      scanner = new Html5Qrcode("reader");
+
+      await scanner.start(
+        { facingMode: "environment" },   // rear camera on a phone
+        { fps: 10, qrbox: { width: 230, height: 230 } },
+        (text) => submitCode(text.trim()),
+        () => { /* per-frame decode misses are normal, not errors */ }
+      );
+
+      setState("Scanning", "ok");
+      document.getElementById("start-btn").disabled = true;
+      document.getElementById("stop-btn").disabled = false;
+    } catch (err) {
+      setState("Unavailable", "danger");
+      // The usual causes are a denied permission prompt or a page served over
+      // plain HTTP, where browsers block camera access outright.
+      UI.toast(
+        "Could not open the camera. Allow camera access, and make sure the " +
+        "site is served over HTTPS or localhost.", "danger", 9000
+      );
+    }
+  });
+
+  document.getElementById("stop-btn").addEventListener("click", async () => {
+    if (scanner) { await scanner.stop(); scanner = null; }
+    setState("Idle", "muted");
+    document.getElementById("start-btn").disabled = false;
+    document.getElementById("stop-btn").disabled = true;
+    document.getElementById("reader").innerHTML =
+      '<p class="muted small" style="padding:20px">Camera stopped.</p>';
+  });
+
+  document.getElementById("manual-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = document.getElementById("manual-code");
+    submitCode(input.value.trim());
+    input.value = "";
+    input.focus();
+  });
+
+  document.getElementById("clear-log").addEventListener("click", () => {
+    log.length = 0;
+    renderLog();
+  });
+
+  // Release the camera when leaving the page - some devices keep the LED on.
+  window.addEventListener("beforeunload", () => { if (scanner) scanner.stop(); });
+
+  renderLog();
+</script>
+{% endblock %}
