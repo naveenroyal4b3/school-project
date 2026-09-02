@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.organizations',
     "apps.teachers",
     "apps.academics",
+    "apps.common",
     'rest_framework',
 ]
 
@@ -154,5 +155,12 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    # Fail closed: every endpoint requires authentication unless it
+    # explicitly sets permission_classes (register/login use AllowAny).
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
 }
+
+
 
