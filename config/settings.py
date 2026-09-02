@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "apps.common",
     "apps.transport",
     "apps.attendance",
+    "apps.fees",
     "apps.notifications",
     'rest_framework',
 ]
