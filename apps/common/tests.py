@@ -15,6 +15,8 @@ from apps.common.testing import rows
 
 from apps.accounts.models import User
 from apps.organizations.models import Organization
+from apps.attendance.models import Attendance, StudentQRCode
+from apps.parents.models import Parent
 from apps.students.models import Student
 
 
@@ -95,13 +97,15 @@ class RolePermissionTests(APITestCase):
 
     def test_admin_may_create(self):
         self.client.force_authenticate(self.admin)
-        subject_user = make_user("newstudent", User.Role.STUDENT, self.org)
 
+        # The sign-in account is created alongside the student, so the caller
+        # supplies the username rather than an existing user id.
         response = self.client.post(
             reverse("student-list"),
             {
-                "user": subject_user.id,
-                "organization": self.org.id,
+                "new_username": "newstudent",
+                "first_name": "New",
+                "last_name": "Student",
                 "admission_no": "ADM-100",
                 "roll_number": "R-100",
                 "date_of_birth": "2010-05-01",
@@ -232,3 +236,127 @@ class PaginationTests(APITestCase):
         """The parameter must not become a way to pull an entire college."""
         response = self.client.get(reverse("student-list"), {"page_size": 99999})
         self.assertEqual(len(rows(response)), 30)  # capped at 1000, all 30 fit
+
+
+class RowLevelScopingTests(APITestCase):
+    """Roles say what a person may do; they do not say whose records they may
+    touch. Without row-level scoping any signed-in student could read every
+    classmate's date of birth and home address."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+
+        self.parent = Parent.objects.create(
+            user=make_user("parent1", User.Role.PARENT, self.org),
+            organization=self.org,
+        )
+
+        self.mine = make_student(
+            make_user("child1", User.Role.STUDENT, self.org),
+            self.org, "ADM-MINE", "R-MINE",
+        )
+        self.mine.parent = self.parent
+        self.mine.save()
+
+        self.other = make_student(
+            make_user("child2", User.Role.STUDENT, self.org),
+            self.org, "ADM-OTHER", "R-OTHER",
+        )
+
+        for student in (self.mine, self.other):
+            Attendance.objects.create(
+                student=student, date=datetime.date(2026, 9, 2), status="PRESENT"
+            )
+
+    def admissions(self, response):
+        return sorted(row["admission_no"] for row in rows(response))
+
+    def test_a_student_sees_only_their_own_record(self):
+        self.client.force_authenticate(self.mine.user)
+        response = self.client.get(reverse("student-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.admissions(response), ["ADM-MINE"])
+
+    def test_a_student_cannot_open_a_classmates_record(self):
+        self.client.force_authenticate(self.mine.user)
+        response = self.client.get(reverse("student-detail", args=[self.other.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_a_parent_sees_only_their_children(self):
+        self.client.force_authenticate(self.parent.user)
+        response = self.client.get(reverse("student-list"))
+
+        self.assertEqual(self.admissions(response), ["ADM-MINE"])
+
+    def test_a_student_sees_only_their_own_attendance(self):
+        self.client.force_authenticate(self.mine.user)
+        response = self.client.get(reverse("attendance-list"))
+
+        returned = [row["admission_no"] for row in rows(response)]
+        self.assertEqual(returned, ["ADM-MINE"])
+
+    def test_a_parent_sees_only_their_childs_attendance(self):
+        self.client.force_authenticate(self.parent.user)
+        response = self.client.get(reverse("attendance-list"))
+
+        returned = [row["admission_no"] for row in rows(response)]
+        self.assertEqual(returned, ["ADM-MINE"])
+
+    def test_staff_still_see_the_whole_college(self):
+        for username, role in [("admin9", User.Role.ORGANIZATION_ADMIN),
+                               ("teach9", User.Role.TEACHER)]:
+            with self.subTest(role=role):
+                self.client.force_authenticate(make_user(username, role, self.org))
+                self.assertEqual(
+                    self.admissions(self.client.get(reverse("student-list"))),
+                    ["ADM-MINE", "ADM-OTHER"],
+                )
+
+    def test_a_profileless_student_account_sees_nothing(self):
+        """Fails closed rather than falling through to the whole college."""
+        stray = make_user("stray", User.Role.STUDENT, self.org)
+        self.client.force_authenticate(stray)
+
+        self.assertEqual(self.admissions(self.client.get(reverse("student-list"))), [])
+
+    def test_an_unrecognised_role_sees_nothing(self):
+        """A role added later must be granted access deliberately, not inherit
+        it by omission."""
+        stranger = make_user("stranger", User.Role.DRIVER, self.org)
+        self.client.force_authenticate(stranger)
+
+        self.assertEqual(self.admissions(self.client.get(reverse("student-list"))), [])
+
+
+class CardCodeSecrecyTests(APITestCase):
+    """A card code is a credential: anyone holding one can have attendance
+    recorded against that student."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        self.student = make_student(
+            make_user("child1", User.Role.STUDENT, self.org), self.org, "ADM-1", "R-1"
+        )
+        StudentQRCode.objects.create(student=self.student)
+
+    def test_students_cannot_list_card_codes(self):
+        self.client.force_authenticate(self.student.user)
+        response = self.client.get(reverse("qrcode-list"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_faculty_cannot_list_card_codes(self):
+        self.client.force_authenticate(make_user("t1", User.Role.TEACHER, self.org))
+        self.assertEqual(
+            self.client.get(reverse("qrcode-list")).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_admins_can(self):
+        self.client.force_authenticate(
+            make_user("a1", User.Role.ORGANIZATION_ADMIN, self.org)
+        )
+        self.assertEqual(
+            self.client.get(reverse("qrcode-list")).status_code, status.HTTP_200_OK
+        )

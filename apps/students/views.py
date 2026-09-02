@@ -1,17 +1,19 @@
 from rest_framework import generics
 
-from apps.common.mixins import OrganizationScopedMixin
+from apps.common.mixins import RowLevelScopedMixin
 from apps.common.permissions import IsAdminOrReadOnly
 
 from .models import Student
 from .serializers import StudentSerializer
 
 
-class StudentQuerysetMixin(OrganizationScopedMixin):
+class StudentQuerysetMixin(RowLevelScopedMixin):
     """Shared base queryset.
 
-    select_related on the joins the serializer always reads: without it a page
-    of 25 students issues 100 extra queries for names, classes and guardians.
+    Row-level scoped: staff see the college, a student sees only their own
+    record, and a parent only their children. select_related covers the joins
+    the serializer always reads - without it a page of 25 students issues 100
+    extra queries for names, classes and guardians.
     """
 
     queryset = Student.objects.select_related(

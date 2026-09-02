@@ -3,8 +3,13 @@ from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.response import Response
 
-from apps.common.mixins import OrganizationScopedMixin
-from apps.common.permissions import IsAdminOrReadOnly, IsDriverOrAdmin, IsFacultyOrAdmin
+from apps.common.mixins import OrganizationScopedMixin, RowLevelScopedMixin
+from apps.common.permissions import (
+    IsAdmin,
+    IsAdminOrReadOnly,
+    IsDriverOrAdmin,
+    IsFacultyOrAdmin,
+)
 from apps.students.models import Student
 from apps.transport.models import Bus, Trip
 
@@ -21,11 +26,12 @@ from .serializers import (
 from .services import record_bus_scan, record_campus_scan
 
 
-class AttendanceListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+class AttendanceListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
     queryset = Attendance.objects.select_related("student").all()
     serializer_class = AttendanceSerializer
     permission_classes = [IsFacultyOrAdmin]
     organization_path = "student__organization"
+    student_path = "student"
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -50,11 +56,12 @@ class AttendanceListCreateView(OrganizationScopedMixin, generics.ListCreateAPIVi
         serializer.save(marked_by=self.request.user)
 
 
-class AttendanceDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class AttendanceDetailView(RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = Attendance.objects.select_related("student").all()
     serializer_class = AttendanceSerializer
     permission_classes = [IsFacultyOrAdmin]
     organization_path = "student__organization"
+    student_path = "student"
 
 
 class BulkAttendanceView(generics.GenericAPIView):
@@ -111,16 +118,23 @@ class BulkAttendanceView(generics.GenericAPIView):
 
 
 class StudentQRCodeListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+    """Issued ID cards.
+
+    Admin-only, including reads: the code on a card is a credential, and anyone
+    holding one can have attendance recorded against that student. Listing them
+    to classmates would hand out the whole school's cards.
+    """
+
     queryset = StudentQRCode.objects.select_related("student__user").all()
     serializer_class = StudentQRCodeSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsAdmin]
     organization_path = "student__organization"
 
 
 class StudentQRCodeDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = StudentQRCode.objects.select_related("student__user").all()
     serializer_class = StudentQRCodeSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsAdmin]
     organization_path = "student__organization"
 
 
@@ -134,7 +148,7 @@ class StudentQRCodeImageView(OrganizationScopedMixin, generics.GenericAPIView):
 
     queryset = StudentQRCode.objects.all()
     serializer_class = StudentQRCodeSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsAdmin]
     organization_path = "student__organization"
 
     def get(self, request, *args, **kwargs):
@@ -152,7 +166,7 @@ class IssueQRCodesView(generics.GenericAPIView):
     """
 
     serializer_class = StudentQRCodeSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsAdmin]
 
     def post(self, request, *args, **kwargs):
         students = Student.objects.filter(is_active=True)
@@ -175,18 +189,20 @@ class IssueQRCodesView(generics.GenericAPIView):
         )
 
 
-class BusAttendanceListView(OrganizationScopedMixin, generics.ListAPIView):
+class BusAttendanceListView(RowLevelScopedMixin, generics.ListAPIView):
     queryset = BusAttendance.objects.select_related("student", "bus").all()
     serializer_class = BusAttendanceSerializer
     permission_classes = [IsAdminOrReadOnly]
     organization_path = "student__organization"
+    student_path = "student"
 
 
-class CampusScanListView(OrganizationScopedMixin, generics.ListAPIView):
+class CampusScanListView(RowLevelScopedMixin, generics.ListAPIView):
     queryset = CampusScan.objects.select_related("student", "attendance").all()
     serializer_class = CampusScanSerializer
     permission_classes = [IsAdminOrReadOnly]
     organization_path = "student__organization"
+    student_path = "student"
 
 
 class ScanView(generics.GenericAPIView):
