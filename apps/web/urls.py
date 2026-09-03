@@ -1,3 +1,4 @@
+from apps.fees.pages import receipt_page
 from django.urls import path
 
 from .views import (
@@ -22,4 +23,5 @@ urlpatterns = [
     path("tracking/", TrackingPageView.as_view(), name="page-tracking"),
     path("fees/", FeesPageView.as_view(), name="page-fees"),
     path("results/", ResultsPageView.as_view(), name="page-results"),
+    path("receipts/<int:pk>/", receipt_page, name="page-receipt"),
 ]

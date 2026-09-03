@@ -253,7 +253,7 @@
             UI.td(UI.money(p.amount_paid), "num") +
             "<td>" + UI.statusPill(p.status) + "</td>" +
             '<td class="num"><a class="btn btn--ghost btn--sm" target="_blank" rel="noopener" ' +
-              'href="/api/fees/payments/' + p.id + '/receipt/">Receipt</a></td>' +
+              'href="/receipts/' + p.id + '/">Receipt</a></td>' +
             "</tr>"
           ).join("")
         : UI.emptyRow(8, "No payments recorded", "Record the first payment to see it here.");

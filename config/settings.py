@@ -233,6 +233,12 @@ SMS_BACKEND = os.getenv("SMS_BACKEND", "")
 # Online payment gateway. Empty uses the console gateway, which settles nothing
 # and must never be used in production.
 PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "")
+
+# Razorpay credentials, when PAYMENT_GATEWAY points at that backend. Read from
+# the environment: a key committed to the repository is a key that has to be
+# rotated.
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@smartsms.local")
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"

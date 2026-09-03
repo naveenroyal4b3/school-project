@@ -1,0 +1,139 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Receipt {{ payment.receipt_number }}</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <style>
+    /* Fixed light palette: a receipt is printed and filed, and dark mode would
+       waste toner and render badly on paper. */
+    body { background: #f1f5f9; color: #0f172a; padding: 24px 16px; }
+    .sheet { max-width: 720px; margin: 0 auto; background: #fff;
+      border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+    .sheet__head { padding: 22px 26px; border-bottom: 2px solid #0f172a; }
+    .sheet__body { padding: 22px 26px; }
+    .org { font-size: 1.15rem; font-weight: 700; }
+    .org__meta { font-size: .8rem; color: #475569; margin-top: 3px; line-height: 1.5; }
+    .stamp { float: right; text-align: right; }
+    .stamp__no { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .rows { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .9rem; }
+    .rows th { text-align: left; padding: 9px 0; color: #475569; font-weight: 600;
+      width: 42%; vertical-align: top; }
+    .rows td { padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+    .total { display: flex; justify-content: space-between; align-items: baseline;
+      margin-top: 18px; padding-top: 14px; border-top: 2px solid #0f172a; }
+    .total__amount { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px;
+      font-size: .75rem; font-weight: 700; }
+    .badge--paid { background: #dcfce7; color: #15803d; }
+    .badge--partial { background: #fef3c7; color: #b45309; }
+    .foot { margin-top: 20px; font-size: .72rem; color: #64748b; line-height: 1.6; }
+    .actions { max-width: 720px; margin: 0 auto 14px; display: flex; gap: 8px;
+      justify-content: flex-end; }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .actions { display: none; }
+      .sheet { border: 0; border-radius: 0; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="actions">
+  <button class="btn btn--ghost" onclick="history.back()">Back</button>
+  <button class="btn btn--primary" onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+<div class="sheet">
+  <div class="sheet__head">
+    <div class="stamp">
+      <div style="font-size:.7rem;color:#475569;text-transform:uppercase;
+                  letter-spacing:.06em;font-weight:600">Receipt</div>
+      <div class="stamp__no">{{ payment.receipt_number }}</div>
+      <div style="font-size:.78rem;color:#475569">{{ payment.payment_date|date:"d M Y" }}</div>
+    </div>
+
+    <div class="org">{{ organization.organization_name|default:"Student Management System" }}</div>
+    <div class="org__meta">
+      {% if organization %}
+        {{ organization.address }}<br>
+        {{ organization.city }}, {{ organization.state }} {{ organization.pincode }}<br>
+        {{ organization.phone }} · {{ organization.email }}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="sheet__body">
+    <table class="rows">
+      <tr>
+        <th>Received from</th>
+        <td>
+          <strong>{{ student_name }}</strong><br>
+          <span style="color:#475569">
+            {{ student.admission_no }} · Roll {{ student.roll_number }}
+            {% if student.classroom %}· {{ student.classroom.name }}{% endif %}
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <th>Towards</th>
+        <td>{{ fee.name }}{% if fee.frequency %} ({{ fee.get_frequency_display }}){% endif %}</td>
+      </tr>
+      <tr>
+        <th>Amount charged</th>
+        <td>₹{{ fee.amount|floatformat:2 }}</td>
+      </tr>
+      <tr>
+        <th>Payment method</th>
+        <td>{{ method_label }}</td>
+      </tr>
+      {% if reference %}
+      <tr>
+        <th>Reference</th>
+        <td style="font-variant-numeric:tabular-nums">{{ reference }}</td>
+      </tr>
+      {% endif %}
+      {% if payment.bank_name %}
+      <tr><th>Bank</th><td>{{ payment.bank_name }}</td></tr>
+      {% endif %}
+      <tr>
+        <th>Status</th>
+        <td>
+          {% if is_settled %}
+            <span class="badge badge--paid">Paid in full</span>
+          {% else %}
+            <span class="badge badge--partial">Part payment</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% if not is_settled %}
+      <tr>
+        <th>Balance on this fee</th>
+        <td>₹{{ balance_on_this_fee|floatformat:2 }}</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    <div class="total">
+      <span style="font-weight:600">Amount received</span>
+      <span class="total__amount">₹{{ payment.amount_paid|floatformat:2 }}</span>
+    </div>
+
+    <p class="foot">
+      Computer-generated receipt — no signature required.
+      Issued {{ issued_at|date:"d M Y, H:i" }}.
+      {% if outstanding_total > 0 %}
+        Total outstanding across all fees: ₹{{ outstanding_total|floatformat:2 }}.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+</body>
+</html>

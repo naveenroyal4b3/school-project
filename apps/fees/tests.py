@@ -1,6 +1,10 @@
 import datetime
+import hashlib
+import hmac
 from decimal import Decimal
 
+from django.core.exceptions import ImproperlyConfigured
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -284,3 +288,63 @@ class PaymentGatewayTests(APITestCase):
         self.assertEqual(order["amount"], 150000)
         self.assertEqual(order["currency"], "INR")
         self.assertTrue(order["order_id"].startswith("order_dev_"))
+
+
+class RazorpayGatewayTests(TestCase):
+    """The signature is the only proof a payment happened.
+
+    The browser reports success; only the HMAC, computed with a secret the
+    browser never sees, actually establishes it.
+    """
+
+    def setUp(self):
+        from apps.fees.gateways import RazorpayGateway
+        with override_settings(RAZORPAY_KEY_ID="rzp_test_key",
+                               RAZORPAY_KEY_SECRET="secret123"):
+            self.gateway = RazorpayGateway()
+
+    def signature_for(self, order_id, payment_id, secret="secret123"):
+        return hmac.new(
+            secret.encode(), f"{order_id}|{payment_id}".encode(), hashlib.sha256
+        ).hexdigest()
+
+    def test_a_genuine_signature_verifies(self):
+        good = self.signature_for("order_x", "pay_y")
+        self.assertTrue(
+            self.gateway.verify_payment(
+                order_id="order_x", payment_id="pay_y", signature=good
+            )
+        )
+
+    def test_a_forged_signature_is_rejected(self):
+        forged = self.signature_for("order_x", "pay_y", secret="wrong-secret")
+        self.assertFalse(
+            self.gateway.verify_payment(
+                order_id="order_x", payment_id="pay_y", signature=forged
+            )
+        )
+
+    def test_a_signature_from_a_different_order_is_rejected(self):
+        """Otherwise one valid payment could settle any number of fees."""
+        other = self.signature_for("order_other", "pay_y")
+        self.assertFalse(
+            self.gateway.verify_payment(
+                order_id="order_x", payment_id="pay_y", signature=other
+            )
+        )
+
+    def test_a_missing_signature_is_rejected(self):
+        self.assertFalse(
+            self.gateway.verify_payment(
+                order_id="order_x", payment_id="pay_y", signature=None
+            )
+        )
+
+    def test_the_gateway_refuses_to_start_without_credentials(self):
+        """Better a loud failure at startup than silently falling back to a
+        stub that marks unpaid fees as settled."""
+        from apps.fees.gateways import RazorpayGateway
+
+        with override_settings(RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET=""):
+            with self.assertRaises(ImproperlyConfigured):
+                RazorpayGateway()

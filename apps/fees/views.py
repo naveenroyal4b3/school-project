@@ -8,6 +8,7 @@ from apps.notifications.models import Notification
 from apps.notifications.services import notify_guardians
 
 from .models import RTGS_MINIMUM, FeePayment, FeeStructure
+from .receipts import receipt_context
 from .serializers import (
     FeePaymentSerializer,
     FeeStructureSerializer,
@@ -64,8 +65,15 @@ class FeePaymentDetailView(AuditedMixin, RowLevelScopedMixin, generics.RetrieveU
 
 
 class ReceiptView(RowLevelScopedMixin, generics.RetrieveAPIView):
-    """The document's "Generate Payment Receipts" - a receipt is a rendering of
-    a payment, not a separate record, so there is nothing to store."""
+    """The document's "Generate Payment Receipts".
+
+    A receipt is a rendering of a payment, not a separate record, so there is
+    nothing to store. Returns a printable page by default and JSON when asked,
+    because a parent wants something to keep while the front end wants data.
+
+    Row-level scoped, so a parent can open their own child's receipt and nobody
+    else's.
+    """
 
     queryset = FeePayment.objects.select_related(
         "student__user", "student__organization", "fee_structure"
@@ -78,6 +86,7 @@ class ReceiptView(RowLevelScopedMixin, generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         payment = self.get_object()
         student = payment.student
+
         return Response(
             {
                 "receipt_number": payment.receipt_number,
