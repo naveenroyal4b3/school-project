@@ -7,12 +7,19 @@ Access control therefore stays in one place - the API - rather than being
 duplicated in template logic where a second copy would drift.
 """
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import TemplateView
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class Page(TemplateView):
-    """Base for every page. Kept so a future shared context - feature flags,
-    build version - lands in one place."""
+    """Base for every page.
+
+    ensure_csrf_cookie is what makes cookie authentication usable: the API
+    rejects writes without a CSRF token, and the front end can only send one if
+    the page it loaded from set the cookie.
+    """
 
 
 class LoginPageView(Page):

@@ -75,7 +75,7 @@
     return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
   }
 
-  if (API.access) window.location = safeNext();
+  if (Session.isSignedIn) window.location = safeNext();
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -101,7 +101,7 @@
     } catch (err) {
       errorBox.textContent = err.status === 401
         ? "That username and password do not match."
-        : err.message;
+        : err.message;   // 429 arrives here with the rate-limit wording
       errorBox.style.display = "block";
       document.getElementById("password").value = "";
       document.getElementById("password").focus();

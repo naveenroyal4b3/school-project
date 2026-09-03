@@ -9,57 +9,83 @@
 
   /* ---------------- API client ---------------- */
 
+  /* Tokens live in httpOnly cookies the browser attaches on its own, so
+   * nothing here reads or stores them - a successful XSS cannot steal a
+   * session. Only the non-sensitive profile is cached, to render the header
+   * without a round trip. */
+
+  function cookie(name) {
+    const match = document.cookie.match(
+      new RegExp("(^|;)\s*" + name + "\s*=\s*([^;]+)")
+    );
+    return match ? decodeURIComponent(match[2]) : null;
+  }
+
+  const UNSAFE = ["POST", "PUT", "PATCH", "DELETE"];
+
   const API = {
-    get access() { return localStorage.getItem("access"); },
-    get refresh() { return localStorage.getItem("refresh"); },
     get user() {
       try { return JSON.parse(localStorage.getItem("user") || "null"); }
       catch (e) { return null; }
     },
 
     setSession(data) {
-      if (data.access) localStorage.setItem("access", data.access);
-      if (data.refresh) localStorage.setItem("refresh", data.refresh);
       if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
     },
 
     clear() {
-      ["access", "refresh", "user"].forEach((k) => localStorage.removeItem(k));
+      localStorage.removeItem("user");
+      localStorage.removeItem("brand");
     },
 
     async request(path, options = {}, allowRetry = true) {
       const opts = Object.assign({}, options);
       opts.headers = Object.assign({}, options.headers);
+      // Send the auth cookies. Without this a cross-origin build would
+      // authenticate as nobody and every call would 401.
+      opts.credentials = "same-origin";
 
       if (opts.body !== undefined && !(opts.body instanceof FormData)) {
         opts.headers["Content-Type"] = "application/json";
         if (typeof opts.body !== "string") opts.body = JSON.stringify(opts.body);
       }
-      if (this.access) opts.headers["Authorization"] = "Bearer " + this.access;
+
+      // Cookie auth means the browser attaches credentials by itself, so the
+      // server demands a CSRF token on anything that writes.
+      const method = (opts.method || "GET").toUpperCase();
+      if (UNSAFE.includes(method)) {
+        const csrf = cookie("csrftoken");
+        if (csrf) opts.headers["X-CSRFToken"] = csrf;
+      }
 
       let response;
       try {
         response = await fetch(path, opts);
       } catch (err) {
-        // Network failure is different from a rejected request, and the user
-        // needs to know it is their connection rather than their input.
         throw new APIError("Could not reach the server. Check your connection.", 0, {});
       }
 
       // An expired access token is normal, not an error: swap it silently.
-      if (response.status === 401 && allowRetry && this.refresh) {
-        const refreshed = await fetch("/api/token/refresh/", {
+      if (response.status === 401 && allowRetry) {
+        const refreshed = await fetch("/api/accounts/refresh/", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh: this.refresh }),
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": cookie("csrftoken") || "",
+          },
         });
-        if (refreshed.ok) {
-          this.setSession(await refreshed.json());
-          return this.request(path, options, false);
-        }
+        if (refreshed.ok) return this.request(path, options, false);
+
         this.clear();
         redirectToLogin();
         throw new APIError("Your session has expired.", 401, {});
+      }
+
+      if (response.status === 429) {
+        throw new APIError(
+          "Too many attempts. Wait a moment and try again.", 429, {}
+        );
       }
 
       if (!response.ok) {
@@ -77,6 +103,12 @@
     post(path, body) { return this.request(path, { method: "POST", body }); },
     patch(path, body) { return this.request(path, { method: "PATCH", body }); },
     del(path) { return this.request(path, { method: "DELETE" }); },
+
+    async signOut() {
+      try { await this.post("/api/accounts/logout/", {}); }
+      catch (e) { /* signing out must succeed locally even if the call fails */ }
+      this.clear();
+    },
 
     /* Lists arrive paginated or plain depending on the endpoint. */
     rowsOf(payload) {
@@ -281,6 +313,9 @@
   const ADMIN_ROLES = ["SUPER_ADMIN", "ORGANIZATION_ADMIN"];
   const Session = {
     get user() { return API.user; },
+    /* The token is invisible to JavaScript now, so "signed in" means we have a
+     * cached profile; a stale one is corrected by the first 401. */
+    get isSignedIn() { return Boolean(API.user); },
     get role() { return (API.user || {}).role; },
     isAdmin() { return ADMIN_ROLES.includes(this.role); },
     isStaff() { return this.isAdmin() || this.role === "TEACHER"; },

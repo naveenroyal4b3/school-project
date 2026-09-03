@@ -99,7 +99,9 @@
 
 <script src="{% static 'js/app.js' %}"></script>
 <script>
-  if (!API.access) UI.redirectToLogin();
+  // The token is httpOnly now, so a cached profile is the local signal;
+  // a stale one is corrected by the first 401 from the API.
+  if (!Session.isSignedIn) UI.redirectToLogin();
 
   (function shell() {
     const user = Session.user || {};
@@ -165,9 +167,11 @@
     wide.addEventListener("change", syncToViewport);
     syncToViewport(wide);
 
-    document.getElementById("logout-btn").addEventListener("click", () => {
-      API.clear();
-      localStorage.removeItem("brand");
+    document.getElementById("logout-btn").addEventListener("click", async (event) => {
+      // Blacklists the refresh token server-side, so a copy taken beforehand
+      // cannot keep minting access tokens.
+      event.target.disabled = true;
+      await API.signOut();
       window.location = "/login/";
     });
   })();

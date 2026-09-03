@@ -66,6 +66,9 @@ INSTALLED_APPS = [
     "apps.dashboard",
     "apps.web",
     'rest_framework',
+    # Needed by ROTATE_REFRESH_TOKENS: a rotated-away refresh token must stop
+    # working, which means remembering that it was rotated.
+    "rest_framework_simplejwt.token_blacklist",
 ]
 
 MIDDLEWARE = [
@@ -176,8 +179,10 @@ AUTH_USER_MODEL = "accounts.User"
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
+    # Cookie first, Authorization header second. Browsers get httpOnly cookies
+    # that XSS cannot read; API and mobile clients keep using the header.
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.accounts.authentication.CookieJWTAuthentication",
     ),
     # Fail closed: every endpoint requires authentication unless it
     # explicitly sets permission_classes (register/login use AllowAny).
@@ -189,6 +194,32 @@ REST_FRAMEWORK = {
     # opt out with pagination_class = None.
     "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
+    # Sign-in is the one endpoint an attacker can hammer without an account, so
+    # it gets its own much tighter bucket. The rest exist to stop a runaway
+    # client, not an attacker.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+        "register": "5/hour",
+        "scan": "120/min",      # a busy gate at 8am reads a card every second
+        "user": "1000/hour",
+    },
+}
+
+from datetime import timedelta  # noqa: E402 - kept beside the settings it feeds
+
+SIMPLE_JWT = {
+    # Short access tokens limit the damage of a leaked one; the refresh token
+    # is what keeps a user signed in, and it rotates on every use so a stolen
+    # one stops working as soon as the real user refreshes.
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 
