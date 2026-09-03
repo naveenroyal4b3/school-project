@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Faculty · Student Management System{% endblock %}
+{% block heading %}<span data-term="faculty_plural">Faculty</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 data-term="faculty_plural">Faculty</h1>
+    <p class="muted small" style="margin:0" id="count">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <input class="input" id="search" type="search" placeholder="Filter by name or ID"
+           autocomplete="off">
+  </div>
+</div>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Employee ID</th><th>Name</th><th>Qualification</th>
+          <th class="num">Experience</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" style="margin-top:14px" id="schedule-card" hidden>
+  <div class="card__head">
+    <h2 style="margin:0" id="schedule-title">Weekly schedule</h2>
+    <button class="btn btn--ghost btn--sm" id="close-schedule">Close</button>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Day</th><th>Period</th><th>Class</th><th>Subject</th><th>Room</th></tr></thead>
+      <tbody id="schedule-rows"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const COLUMNS = 6;
+  let teachers = [];
+
+  function render() {
+    const term = document.getElementById("search").value.trim().toLowerCase();
+    const shown = teachers.filter((t) =>
+      !term ||
+      (t.employee_id || "").toLowerCase().includes(term) ||
+      (t.full_name || "").toLowerCase().includes(term)
+    );
+
+    document.getElementById("count").textContent =
+      shown.length + " of " + teachers.length;
+
+    document.getElementById("rows").innerHTML = shown.length
+      ? shown.map((t) =>
+          "<tr>" +
+          UI.td(t.employee_id) +
+          UI.td(t.full_name || "—") +
+          UI.td(t.qualification || "—") +
+          UI.td((t.experience || 0) + " yrs", "num") +
+          "<td>" + (t.is_active ? UI.pill("Active", "ok")
+                                : UI.pill("Inactive", "muted")) + "</td>" +
+          '<td class="num"><button class="btn btn--ghost btn--sm" ' +
+            'data-schedule="' + t.id + '">Schedule</button></td>' +
+          "</tr>"
+        ).join("")
+      : UI.emptyRow(COLUMNS, "No faculty found", "");
+  }
+
+  document.getElementById("rows").addEventListener("click", async (event) => {
+    const id = event.target.dataset && event.target.dataset.schedule;
+    if (!id) return;
+
+    const card = document.getElementById("schedule-card");
+    const body = document.getElementById("schedule-rows");
+    const teacher = teachers.find((t) => String(t.id) === id);
+
+    card.hidden = false;
+    document.getElementById("schedule-title").textContent =
+      "Weekly schedule — " + (teacher.full_name || teacher.employee_id);
+    body.innerHTML = UI.skeletonRows(5, 4);
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    try {
+      const rows = API.rowsOf(
+        await API.get("/api/timetable/teachers/" + id + "/?page_size=200")
+      );
+      body.innerHTML = rows.length
+        ? rows.map((e) =>
+            "<tr>" + UI.td(e.weekday_label) +
+            UI.td(e.period_name + " (" + (e.starts_at || "") + ")") +
+            UI.td(e.classroom) + UI.td(e.subject_name) +
+            UI.td(e.room_name || "—") + "</tr>"
+          ).join("")
+        : UI.emptyRow(5, "No lessons scheduled", "");
+    } catch (err) {
+      body.innerHTML = UI.emptyRow(5, "Could not load the schedule", err.message);
+    }
+  });
+
+  document.getElementById("close-schedule").onclick = () => {
+    document.getElementById("schedule-card").hidden = true;
+  };
+
+  document.getElementById("search").addEventListener("input", UI.debounce(render, 200));
+
+  (async function load() {
+    document.getElementById("rows").innerHTML = UI.skeletonRows(COLUMNS);
+    try {
+      teachers = API.rowsOf(await API.get("/api/teachers/?page_size=500"));
+      render();
+    } catch (err) {
+      document.getElementById("rows").innerHTML =
+        UI.emptyRow(COLUMNS, "Could not load faculty", err.message);
+    }
+  })();
+</script>
+{% endblock %}

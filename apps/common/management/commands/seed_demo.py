@@ -23,6 +23,7 @@ from apps.organizations.models import Organization
 from apps.parents.models import Parent
 from apps.students.models import Student
 from apps.teachers.models import Teacher
+from apps.timetable.models import Period, Room, TimetableEntry
 from apps.transport.models import Bus, BusLocation, Driver, Route, RouteStop, StudentTransport
 
 PASSWORD = "Demo!Pass2026"
@@ -104,6 +105,58 @@ class Command(BaseCommand):
                     "experience": 5 + i,
                 },
             )
+
+        # --- Timetable -----------------------------------------------------
+        rooms = [
+            Room.objects.update_or_create(
+                academic_year=year, name=name, defaults={"capacity": 40}
+            )[0]
+            for name in ("Room 101", "Room 102", "Lab 1")
+        ]
+
+        periods = []
+        schedule = [
+            ("Period 1", datetime.time(9, 0), datetime.time(9, 45), False),
+            ("Period 2", datetime.time(9, 45), datetime.time(10, 30), False),
+            ("Break", datetime.time(10, 30), datetime.time(10, 45), True),
+            ("Period 3", datetime.time(10, 45), datetime.time(11, 30), False),
+            ("Period 4", datetime.time(11, 30), datetime.time(12, 15), False),
+        ]
+        for order, (name, start, end, is_break) in enumerate(schedule, start=1):
+            periods.append(
+                Period.objects.update_or_create(
+                    academic_year=year,
+                    sequence=order,
+                    defaults={
+                        "name": name,
+                        "start_time": start,
+                        "end_time": end,
+                        "is_break": is_break,
+                    },
+                )[0]
+            )
+
+        teaching_periods = [p for p in periods if not p.is_break]
+        faculty = list(Teacher.objects.filter(organization=org))
+
+        # Round-robin across subjects, teachers and rooms. The unique
+        # constraints reject a clash, so a slot that cannot be filled cleanly is
+        # skipped rather than forced.
+        for weekday in range(1, 6):
+            for index, period in enumerate(teaching_periods):
+                subject = subjects[(weekday + index) % len(subjects)]
+                teacher = faculty[(weekday + index) % len(faculty)] if faculty else None
+                room = rooms[(weekday + index) % len(rooms)]
+                try:
+                    TimetableEntry.objects.update_or_create(
+                        classroom=classroom,
+                        section_key=0,
+                        weekday=weekday,
+                        period=period,
+                        defaults={"subject": subject, "teacher": teacher, "room": room},
+                    )
+                except Exception:
+                    continue
 
         # --- Transport -----------------------------------------------------
         driver = Driver.objects.update_or_create(
@@ -313,7 +366,8 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded '{org.organization_name}' with {created} students, "
-                f"{len(subjects)} subjects, 1 bus on route {route.code}."
+                f"{len(subjects)} subjects, {TimetableEntry.objects.count()} "
+                f"timetabled lessons, 1 bus on route {route.code}."
             )
         )
         self.stdout.write(f"  Admin login:   admin / {PASSWORD}")

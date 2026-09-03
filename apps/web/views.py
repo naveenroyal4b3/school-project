@@ -56,3 +56,19 @@ class FeesPageView(Page):
 
 class ResultsPageView(Page):
     template_name = "results.html"
+
+
+class TeachersPageView(Page):
+    template_name = "teachers.html"
+
+
+class TransportPageView(Page):
+    template_name = "transport.html"
+
+
+class TimetablePageView(Page):
+    template_name = "timetable.html"
+
+
+class NotificationsPageView(Page):
+    template_name = "notifications.html"

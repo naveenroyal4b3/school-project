@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Transport · Student Management System{% endblock %}
+{% block heading %}Transport{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Transport</h1>
+    <p class="muted small" style="margin:0">Fleet, drivers, routes and trips.</p>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn--ghost" href="/tracking/">Live map</a>
+    <button class="btn btn--primary" id="new-trip-btn"
+            data-roles="SUPER_ADMIN,ORGANIZATION_ADMIN,DRIVER">Start a trip</button>
+  </div>
+</div>
+
+<div class="grid grid--stats" style="margin-bottom:16px">
+  <div class="card stat">
+    <div class="stat__label">Buses</div>
+    <div class="stat__value" id="s-buses">—</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Drivers</div>
+    <div class="stat__value" id="s-drivers">—</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Routes</div>
+    <div class="stat__value" id="s-routes">—</div>
+  </div>
+  <div class="card stat">
+    <div class="stat__label">Trips running</div>
+    <div class="stat__value" id="s-trips">—</div>
+  </div>
+</div>
+
+<div class="grid grid--halves">
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">Fleet</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Registration</th><th>Route</th><th>Driver</th>
+                   <th class="num">Seats</th></tr></thead>
+        <tbody id="bus-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card__head"><h2 style="margin:0">Routes</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Code</th><th>Name</th><th>Stops</th>
+                   <th class="num">Distance</th></tr></thead>
+        <tbody id="route-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <div class="card__head"><h2 style="margin:0">Recent trips</h2></div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Bus</th><th>Type</th><th>Status</th>
+                 <th>Started</th><th></th></tr></thead>
+      <tbody id="trip-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<dialog class="modal" id="trip-modal" aria-labelledby="trip-title">
+  <form id="trip-form" method="dialog">
+    <div class="modal__head">
+      <h2 id="trip-title" style="margin:0">Start a trip</h2>
+      <button type="button" class="toast__close" id="trip-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal__body">
+      <div class="field">
+        <label for="t-bus">Bus</label>
+        <select class="select" id="t-bus" name="bus" required></select>
+      </div>
+      <div class="field">
+        <label for="t-type">Trip</label>
+        <select class="select" id="t-type" name="trip_type">
+          <option value="MORNING">Morning</option>
+          <option value="EVENING">Evening</option>
+        </select>
+      </div>
+      <p class="muted small" style="margin:0">
+        The trip is created as scheduled. Start it from the list when the bus
+        leaves, so the recorded time is the real one.
+      </p>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" id="trip-cancel">Cancel</button>
+      <button type="submit" class="btn btn--primary" id="trip-save">Create trip</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let buses = [];
+
+  async function loadFleet() {
+    const busBody = document.getElementById("bus-rows");
+    const routeBody = document.getElementById("route-rows");
+    busBody.innerHTML = UI.skeletonRows(4, 3);
+    routeBody.innerHTML = UI.skeletonRows(4, 3);
+
+    try {
+      const [busPayload, routePayload, driverPayload] = await Promise.all([
+        API.get("/api/transport/buses/?page_size=200"),
+        API.get("/api/transport/routes/?page_size=200"),
+        API.get("/api/transport/drivers/?page_size=200"),
+      ]);
+
+      buses = API.rowsOf(busPayload);
+      const routes = API.rowsOf(routePayload);
+
+      document.getElementById("s-buses").textContent = API.countOf(busPayload);
+      document.getElementById("s-routes").textContent = API.countOf(routePayload);
+      document.getElementById("s-drivers").textContent = API.countOf(driverPayload);
+
+      busBody.innerHTML = buses.length
+        ? buses.map((b) =>
+            "<tr>" + UI.td(b.registration_number) + UI.td(b.route_name || "—") +
+            UI.td(b.driver_name || "Unassigned") +
+            UI.td(b.capacity, "num") + "</tr>"
+          ).join("")
+        : UI.emptyRow(4, "No buses", "Add one in Django admin.");
+
+      routeBody.innerHTML = routes.length
+        ? routes.map((r) =>
+            "<tr>" + UI.td(r.code) + UI.td(r.name) +
+            UI.td((r.stops || []).length) +
+            UI.td(r.distance_km + " km", "num") + "</tr>"
+          ).join("")
+        : UI.emptyRow(4, "No routes", "");
+
+      document.getElementById("t-bus").innerHTML = buses.map((b) =>
+        '<option value="' + b.id + '">' +
+        UI.escapeHTML(b.registration_number + (b.route_name ? " — " + b.route_name : "")) +
+        "</option>"
+      ).join("");
+    } catch (err) {
+      busBody.innerHTML = UI.emptyRow(4, "Could not load the fleet", err.message);
+      routeBody.innerHTML = "";
+    }
+  }
+
+  async function loadTrips() {
+    const body = document.getElementById("trip-rows");
+    body.innerHTML = UI.skeletonRows(5, 3);
+
+    try {
+      const trips = API.rowsOf(await API.get("/api/transport/trips/?page_size=50"));
+
+      document.getElementById("s-trips").textContent =
+        trips.filter((t) => t.status === "IN_PROGRESS").length;
+
+      body.innerHTML = trips.length
+        ? trips.map((t) => {
+            const bus = buses.find((b) => b.id === t.bus);
+            const action =
+              t.status === "SCHEDULED"
+                ? '<button class="btn btn--primary btn--sm" data-start="' + t.id + '">Start</button>'
+                : t.status === "IN_PROGRESS"
+                ? '<button class="btn btn--ghost btn--sm" data-end="' + t.id + '">End</button>'
+                : "";
+            return "<tr>" +
+              UI.td(bus ? bus.registration_number : t.bus) +
+              UI.td((t.trip_type || "").toLowerCase()) +
+              "<td>" + UI.statusPill(t.status) + "</td>" +
+              UI.td(t.started_at ? UI.formatDateTime(t.started_at) : "—") +
+              '<td class="num">' + action + "</td></tr>";
+          }).join("")
+        : UI.emptyRow(5, "No trips yet", "Create one to begin tracking.");
+    } catch (err) {
+      body.innerHTML = UI.emptyRow(5, "Could not load trips", err.message);
+    }
+  }
+
+  document.getElementById("trip-rows").addEventListener("click", async (event) => {
+    const data = event.target.dataset || {};
+    const id = data.start || data.end;
+    if (!id) return;
+
+    const action = data.start ? "start" : "end";
+    try {
+      await API.post("/api/transport/trips/" + id + "/" + action + "/", {});
+      UI.toast("Trip " + (action === "start" ? "started" : "ended") + ".");
+      loadTrips();
+    } catch (err) {
+      UI.toast(err.message, "danger");
+    }
+  });
+
+  const modal = document.getElementById("trip-modal");
+  document.getElementById("new-trip-btn").onclick = () => modal.showModal();
+  document.getElementById("trip-cancel").onclick = () => modal.close();
+  document.getElementById("trip-close").onclick = () => modal.close();
+
+  document.getElementById("trip-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+
+    await UI.submitting(document.getElementById("trip-save"), async () => {
+      try {
+        const body = UI.readForm(form);
+        const bus = buses.find((b) => String(b.id) === String(body.bus));
+        if (bus) {
+          // Carried through so the trip records the route it ran, which the
+          // tracking view uses to draw the line.
+          if (bus.route) body.route = bus.route;
+          if (bus.driver) body.driver = bus.driver;
+        }
+        await API.post("/api/transport/trips/", body);
+        UI.toast("Trip created.");
+        modal.close();
+        loadTrips();
+      } catch (err) {
+        UI.showFormErrors(form, err);
+      }
+    });
+  });
+
+  (async function init() {
+    await loadFleet();
+    loadTrips();
+  })();
+</script>
+{% endblock %}

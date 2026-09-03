@@ -7,10 +7,14 @@ from .views import (
     FeesPageView,
     IDCardPageView,
     LoginPageView,
+    NotificationsPageView,
     ResultsPageView,
     ScannerPageView,
     StudentsPageView,
+    TeachersPageView,
+    TimetablePageView,
     TrackingPageView,
+    TransportPageView,
 )
 
 urlpatterns = [
@@ -23,5 +27,9 @@ urlpatterns = [
     path("tracking/", TrackingPageView.as_view(), name="page-tracking"),
     path("fees/", FeesPageView.as_view(), name="page-fees"),
     path("results/", ResultsPageView.as_view(), name="page-results"),
+    path("teachers/", TeachersPageView.as_view(), name="page-teachers"),
+    path("transport/", TransportPageView.as_view(), name="page-transport"),
+    path("timetable/", TimetablePageView.as_view(), name="page-timetable"),
+    path("notifications/", NotificationsPageView.as_view(), name="page-notifications"),
     path("receipts/<int:pk>/", receipt_page, name="page-receipt"),
 ]

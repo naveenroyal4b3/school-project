@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Notifications · Student Management System{% endblock %}
+{% block heading %}Notifications{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <p class="muted small" style="margin:0" id="subtitle">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <select class="select" id="type-filter" aria-label="Filter by type">
+      <option value="">All types</option>
+      <option value="ATTENDANCE">Attendance</option>
+      <option value="TRANSPORT">Transport</option>
+      <option value="FEE">Fee</option>
+      <option value="EXAM">Exam</option>
+      <option value="GENERAL">General</option>
+    </select>
+    <button class="btn btn--ghost" id="mark-all">Mark all read</button>
+  </div>
+</div>
+
+<section class="card">
+  <div id="list"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let items = [];
+
+  const TONE = {
+    ATTENDANCE: "info", TRANSPORT: "info",
+    FEE: "ok", EXAM: "warn", GENERAL: "muted",
+  };
+
+  function render() {
+    const filter = document.getElementById("type-filter").value;
+    const shown = filter
+      ? items.filter((n) => n.notification_type === filter)
+      : items;
+
+    const unread = items.filter((n) => !n.is_read).length;
+    document.getElementById("subtitle").textContent =
+      unread ? unread + " unread" : "Nothing unread";
+
+    const host = document.getElementById("list");
+
+    if (!shown.length) {
+      host.innerHTML =
+        '<div class="empty"><div class="empty__title">Nothing here</div>' +
+        "<div>Alerts about attendance, fees and exams appear here.</div></div>";
+      return;
+    }
+
+    host.innerHTML = shown.map((n) =>
+      '<div style="padding:14px 16px;border-bottom:1px solid var(--line);' +
+        'display:flex;gap:12px;align-items:flex-start' +
+        (n.is_read ? "" : ";background:var(--surface-sunken)") + '">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<strong>' + UI.escapeHTML(n.title) + "</strong>" +
+            UI.pill(n.notification_type.toLowerCase(), TONE[n.notification_type] || "muted") +
+            (n.is_read ? "" : UI.pill("New", "ok")) +
+          "</div>" +
+          '<div class="small" style="margin-top:3px">' + UI.escapeHTML(n.message) + "</div>" +
+          '<div class="muted small" style="margin-top:4px">' +
+            UI.formatDateTime(n.created_at) + " · " + UI.escapeHTML(n.channel) +
+            " · " + UI.escapeHTML(n.status.toLowerCase()) +
+          "</div>" +
+        "</div>" +
+        (n.is_read ? "" :
+          '<button class="btn btn--ghost btn--sm" data-read="' + n.id + '">Mark read</button>') +
+      "</div>"
+    ).join("");
+  }
+
+  async function markRead(id) {
+    try {
+      await API.patch("/api/notifications/" + id + "/", { is_read: true });
+      const item = items.find((n) => n.id === id);
+      if (item) item.is_read = true;
+      render();
+    } catch (err) {
+      UI.toast(err.message, "danger");
+    }
+  }
+
+  document.getElementById("list").addEventListener("click", (event) => {
+    const id = event.target.dataset && event.target.dataset.read;
+    if (id) markRead(Number(id));
+  });
+
+  document.getElementById("mark-all").addEventListener("click", async (event) => {
+    const unread = items.filter((n) => !n.is_read);
+    if (!unread.length) { UI.toast("Nothing unread.", "warn"); return; }
+
+    await UI.submitting(event.target, async () => {
+      // Sequential rather than parallel: a burst of writes from one inbox is
+      // not worth the throttle risk.
+      for (const item of unread) {
+        await markRead(item.id);
+      }
+      UI.toast("Marked " + unread.length + " as read.");
+    });
+  });
+
+  document.getElementById("type-filter").addEventListener("change", render);
+
+  (async function load() {
+    document.getElementById("list").innerHTML =
+      '<div style="padding:16px"><div class="skeleton" style="height:60px"></div></div>'.repeat(3);
+    try {
+      items = API.rowsOf(await API.get("/api/notifications/?page_size=100"));
+      render();
+    } catch (err) {
+      document.getElementById("list").innerHTML =
+        '<div class="empty"><div class="empty__title">Could not load notifications</div>' +
+        "<div>" + UI.escapeHTML(err.message) + "</div></div>";
+    }
+  })();
+</script>
+{% endblock %}

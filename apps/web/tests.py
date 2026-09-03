@@ -25,6 +25,10 @@ PAGES = [
     "page-tracking",
     "page-fees",
     "page-results",
+    "page-teachers",
+    "page-transport",
+    "page-timetable",
+    "page-notifications",
 ]
 
 
@@ -43,7 +47,8 @@ class PageRenderTests(TestCase):
         for template in [
             "base.html", "login.html", "dashboard.html", "students.html",
             "attendance.html", "scanner.html", "id_cards.html", "tracking.html",
-            "fees.html", "results.html", "receipt.html",
+            "fees.html", "results.html", "receipt.html", "teachers.html",
+            "transport.html", "timetable.html", "notifications.html",
         ]:
             with self.subTest(template=template):
                 self.assertIsNotNone(get_template(template))

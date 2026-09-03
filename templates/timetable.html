@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Timetable · Student Management System{% endblock %}
+{% block heading %}Timetable{% endblock %}
+
+{% block extra_head %}
+<style>
+  .grid-table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+  .grid-table th, .grid-table td {
+    border: 1px solid var(--line); padding: 7px 9px; vertical-align: top;
+  }
+  .grid-table th { background: var(--surface-sunken); font-weight: 600;
+    color: var(--ink-muted); text-transform: uppercase; font-size: .7rem;
+    letter-spacing: .04em; }
+  .grid-table td.period { background: var(--surface-sunken); font-weight: 600;
+    white-space: nowrap; }
+  .lesson { font-weight: 600; }
+  .lesson__meta { color: var(--ink-muted); font-size: .72rem; }
+  .lesson--break { color: var(--ink-faint); font-style: italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Timetable</h1>
+    <p class="muted small" style="margin:0" id="subtitle">&nbsp;</p>
+  </div>
+  <div class="toolbar">
+    <select class="select" id="class-filter" aria-label="Class"></select>
+    <button class="btn btn--ghost" id="print-btn">Print</button>
+  </div>
+</div>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="grid-table" id="grid">
+      <tbody><tr><td><div class="skeleton" style="height:200px"></div></td></tr></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const DAYS = [
+    [1, "Monday"], [2, "Tuesday"], [3, "Wednesday"],
+    [4, "Thursday"], [5, "Friday"], [6, "Saturday"],
+  ];
+
+  let periods = [];
+  let entries = [];
+
+  function renderGrid() {
+    const grid = document.getElementById("grid");
+    const classId = document.getElementById("class-filter").value;
+    const shown = entries.filter((e) => !classId || String(e.classroom) === classId);
+
+    if (!periods.length) {
+      grid.innerHTML =
+        '<tbody><tr><td>' +
+        '<div class="empty"><div class="empty__title">No periods defined</div>' +
+        "<div>Add the school day's periods before building a timetable.</div>" +
+        "</div></td></tr></tbody>";
+      return;
+    }
+
+    // Indexed by "period-weekday" so each cell is a direct lookup rather than a
+    // scan of every entry per cell.
+    const bySlot = {};
+    shown.forEach((e) => { bySlot[e.period + "-" + e.weekday] = e; });
+
+    const header =
+      "<thead><tr><th>Period</th>" +
+      DAYS.map(([, label]) => "<th>" + label + "</th>").join("") +
+      "</tr></thead>";
+
+    const body = periods.map((p) => {
+      if (p.is_break) {
+        return '<tr><td class="period">' + UI.escapeHTML(p.name) + "</td>" +
+          '<td class="lesson--break" colspan="' + DAYS.length + '">Break</td></tr>';
+      }
+
+      const cells = DAYS.map(([day]) => {
+        const lesson = bySlot[p.id + "-" + day];
+        if (!lesson) return "<td></td>";
+        return "<td>" +
+          '<div class="lesson">' + UI.escapeHTML(lesson.subject_name) + "</div>" +
+          '<div class="lesson__meta">' +
+            UI.escapeHTML(lesson.teacher_name || "No teacher") +
+            (lesson.room_name ? " · " + UI.escapeHTML(lesson.room_name) : "") +
+          "</div></td>";
+      }).join("");
+
+      return '<tr><td class="period">' + UI.escapeHTML(p.name) +
+        '<div class="lesson__meta">' + (p.start_time || "").slice(0, 5) + "–" +
+        (p.end_time || "").slice(0, 5) + "</div></td>" + cells + "</tr>";
+    }).join("");
+
+    grid.innerHTML = header + "<tbody>" + body + "</tbody>";
+    document.getElementById("subtitle").textContent =
+      shown.length + " lessons scheduled";
+  }
+
+  document.getElementById("class-filter").addEventListener("change", renderGrid);
+  document.getElementById("print-btn").onclick = () => window.print();
+
+  (async function load() {
+    try {
+      const [periodPayload, entryPayload, classPayload] = await Promise.all([
+        API.get("/api/timetable/periods/?page_size=100"),
+        API.get("/api/timetable/?page_size=1000"),
+        API.get("/api/academics/classrooms/?page_size=200"),
+      ]);
+
+      periods = API.rowsOf(periodPayload);
+      entries = API.rowsOf(entryPayload);
+
+      const classes = API.rowsOf(classPayload);
+      document.getElementById("class-filter").innerHTML =
+        '<option value="">All classes</option>' +
+        classes.map((c) =>
+          '<option value="' + c.id + '">' + UI.escapeHTML(c.name) + "</option>"
+        ).join("");
+
+      renderGrid();
+    } catch (err) {
+      document.getElementById("grid").innerHTML =
+        '<tbody><tr><td><div class="empty">' +
+        '<div class="empty__title">Could not load the timetable</div><div>' +
+        UI.escapeHTML(err.message) + "</div></div></td></tr></tbody>";
+    }
+  })();
+</script>
+{% endblock %}
