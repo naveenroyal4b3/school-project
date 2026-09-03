@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.examinations",
     "apps.notifications",
     "apps.dashboard",
+    "apps.timetable",
     "apps.web",
     'rest_framework',
     # Needed by ROTATE_REFRESH_TOKENS: a rotated-away refresh token must stop
