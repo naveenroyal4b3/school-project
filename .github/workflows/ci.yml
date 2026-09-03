@@ -91,7 +91,35 @@ jobs:
           DB_PASSWORD: ci_root
           DB_HOST: 127.0.0.1
           DB_PORT: "3306"
-        run: python manage.py test --verbosity=2
+        run: |
+          set +e
+          python manage.py test --verbosity=2 2>&1 | tee mysql-tests.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Emit the tail as an annotation. Workflow logs are rendered by
+            # JavaScript and cannot be read through the API, but annotations
+            # can - which is the difference between diagnosing a MySQL-only
+            # failure and guessing at it.
+            {
+              echo "### MySQL test failure"
+              echo '```'
+              tail -c 4000 mysql-tests.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            detail=$(tail -c 1200 mysql-tests.log | sed ':a;N;$!ba;s/
+/%0A/g; s///g')
+            echo "::error title=MySQL tests failed::${detail}"
+          fi
+          exit "$status"
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-test-log
+          path: mysql-tests.log
+          if-no-files-found: ignore
 
   deployment-checks:
     name: Production checks
