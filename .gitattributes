@@ -1,0 +1,19 @@
+# Normalise line endings.
+#
+# Git for Windows checks files out with CRLF by default. A shell script that
+# reaches a Linux container with CRLF fails as "no such file or directory",
+# because the kernel reads the shebang as "/bin/sh\r" and looks for a
+# program of that name. CI checks out on Linux and never sees it, so without
+# this the Docker build works everywhere except a Windows developer's machine.
+* text=auto
+
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
