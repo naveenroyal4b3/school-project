@@ -1,5 +1,6 @@
 from rest_framework import generics
 
+from apps.common.archive import ArchiveOnDeleteMixin
 from apps.common.audit import AuditedMixin
 from apps.common.mixins import RowLevelScopedMixin
 from apps.common.permissions import IsAdminOrReadOnly
@@ -42,6 +43,14 @@ class StudentListCreateView(AuditedMixin, StudentQuerysetMixin, generics.ListCre
                 | Q(user__username__icontains=term)
             )
 
+        # Archived students are hidden by the default manager; this exposes
+        # them deliberately, for a leavers report or to restore one.
+        if self.request.query_params.get("archived") == "true":
+            queryset = Student.all_objects.filter(archived_at__isnull=False)
+            user = self.request.user
+            if not user.is_superuser and user.organization_id:
+                queryset = queryset.filter(organization_id=user.organization_id)
+
         is_active = self.request.query_params.get("is_active")
         if is_active in ("true", "false"):
             queryset = queryset.filter(is_active=is_active == "true")
@@ -54,5 +63,11 @@ class StudentListCreateView(AuditedMixin, StudentQuerysetMixin, generics.ListCre
         return queryset.order_by("admission_no")
 
 
-class StudentDetailView(AuditedMixin, StudentQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
+class StudentDetailView(
+    # AuditedMixin first: it records the removal and then delegates to
+    # ArchiveOnDeleteMixin. Reversed, the archiver ends the chain and the
+    # deletion never reaches the audit trail.
+    AuditedMixin, ArchiveOnDeleteMixin, StudentQuerysetMixin,
+    generics.RetrieveUpdateDestroyAPIView,
+):
     pass

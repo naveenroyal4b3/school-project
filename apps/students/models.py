@@ -3,10 +3,11 @@ from django.conf import settings
 
 from apps.organizations.models import Organization
 from apps.academics.models import AcademicYear, ClassRoom, Section
+from apps.common.archive import ArchivableModel
 from apps.parents.models import Parent
 
 
-class Student(models.Model):
+class Student(ArchivableModel):
 
     GENDER_CHOICES = [
         ("Male", "Male"),
