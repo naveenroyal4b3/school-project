@@ -36,6 +36,12 @@ class TimetableEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = TimetableEntry
         fields = "__all__"
+        # DRF derives validators from the model's unique constraints and runs
+        # them before validate(), so its generic "the fields teacher, weekday,
+        # period must make a unique set" would win over the message below. The
+        # database constraint remains the guarantee; this only decides which
+        # explanation the timetabler reads.
+        validators = []
 
     def validate(self, attrs):
         """Catch a clash before the database does, so the message names the

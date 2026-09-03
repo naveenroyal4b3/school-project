@@ -122,6 +122,12 @@ jobs:
     name: Docker image
     runs-on: ubuntu-latest
 
+    # Set for every step, not just the ones that start the stack. The compose
+    # file uses ${SECRET_KEY:?...}, so *any* compose command fails without it -
+    # which is what broke the teardown while the stack itself came up fine.
+    env:
+      SECRET_KEY: ci-only-not-a-real-key
+
     steps:
       - uses: actions/checkout@v4
 
@@ -129,11 +135,11 @@ jobs:
         run: docker build -t smart-sms:ci .
 
       - name: Compose config is valid
-        run: SECRET_KEY=ci docker compose config --quiet
+        run: docker compose config --quiet
 
       - name: Stack starts and serves
         run: |
-          SECRET_KEY=ci-only-not-a-real-key docker compose up -d db web
+          docker compose up -d db web
           # The entrypoint waits for MySQL, migrates, then starts gunicorn.
           for i in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:8000/login/; then

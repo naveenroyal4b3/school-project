@@ -133,6 +133,15 @@ class TimetableEntry(models.Model):
 
     weekday = models.IntegerField(choices=Weekday.choices)
 
+    # Mirrors section_id, or 0 when there is none. A unique constraint cannot
+    # span a nullable column portably: SQL treats NULL as distinct from NULL,
+    # so an unsectioned class could be double-booked. The obvious fix - a
+    # conditional constraint - is not available, because MySQL does not support
+    # them and Django silently drops them there (models.W036), leaving the rule
+    # unenforced on the production database. A non-null mirror needs no
+    # condition and behaves identically everywhere.
+    section_key = models.PositiveIntegerField(editable=False, default=0)
+
     class Meta:
         ordering = ["weekday", "period__sequence"]
         indexes = [
@@ -140,34 +149,36 @@ class TimetableEntry(models.Model):
             models.Index(fields=["classroom", "weekday"]),
         ]
         constraints = [
-            # A class cannot be in two places at once. Split in two because
-            # SQL treats NULL as distinct from NULL, so a single constraint
-            # over a nullable section would let an unsectioned class be
-            # double-booked without complaint.
+            # A class cannot sit two subjects at once.
             models.UniqueConstraint(
-                fields=["classroom", "section", "weekday", "period"],
-                condition=models.Q(section__isnull=False),
-                name="unique_slot_per_class_section",
-            ),
-            models.UniqueConstraint(
-                fields=["classroom", "weekday", "period"],
-                condition=models.Q(section__isnull=True),
+                fields=["classroom", "section_key", "weekday", "period"],
                 name="unique_slot_per_class",
             ),
-            # Neither can a teacher. Enforced in the database rather than only
-            # in a form: a double-booked teacher found on the first day of term
-            # is not a recoverable mistake, and forms are not the only writer.
+            # Neither can a teacher be in two rooms, nor a room host two
+            # classes. Enforced in the database rather than only in a form: a
+            # double-booked teacher found on the first day of term is not a
+            # recoverable mistake, and forms are not the only writer.
+            #
+            # No condition needed here: NULL semantics do the right thing by
+            # themselves. Rows with no teacher never collide with each other,
+            # which is correct, while two rows naming the same teacher do.
             models.UniqueConstraint(
                 fields=["teacher", "weekday", "period"],
-                condition=models.Q(teacher__isnull=False),
                 name="unique_slot_per_teacher",
             ),
             models.UniqueConstraint(
                 fields=["room", "weekday", "period"],
-                condition=models.Q(room__isnull=False),
                 name="unique_slot_per_room",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        self.section_key = self.section_id or 0
+        if "update_fields" in kwargs and kwargs["update_fields"] is not None:
+            # Otherwise a targeted save of "section" would leave the mirror
+            # stale and the constraint guarding the wrong value.
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"section_key"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.get_weekday_display()} {self.period.name}: {self.subject.name}"

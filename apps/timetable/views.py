@@ -55,7 +55,6 @@ class ClashReportingMixin:
     CLASH_MESSAGES = {
         "unique_slot_per_teacher": "That teacher is already teaching in this period.",
         "unique_slot_per_class": "That class already has a subject in this period.",
-        "unique_slot_per_class_section": "That section already has a subject in this period.",
         "unique_slot_per_room": "That room is already in use in this period.",
     }
 

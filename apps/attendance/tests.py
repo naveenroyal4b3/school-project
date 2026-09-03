@@ -1,6 +1,7 @@
 import datetime
 from unittest.mock import patch
 
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -334,3 +335,53 @@ class QRCodeTests(APITestCase):
         self.assertNotEqual(a.code, b.code)
         self.assertNotIn(self.student.admission_no, str(a.code))
         self.assertGreaterEqual(len(str(a.code)), 32)
+
+
+class DailyAttendanceUniquenessTests(APITestCase):
+    """Daily attendance carries no subject, and a unique constraint spanning a
+    nullable column is not enforced - SQL treats NULL as distinct from NULL. It
+    was therefore possible to create two records for the same student and day,
+    which is exactly what the gate scanner writes."""
+
+    def setUp(self):
+        self.org = make_organization("ORGA", "School A")
+        self.student = make_student(self.org)
+
+    def test_a_second_daily_record_is_refused_by_the_database(self):
+        Attendance.objects.create(
+            student=self.student, subject=None,
+            date=datetime.date(2026, 9, 3), status="PRESENT",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Attendance.objects.create(
+                    student=self.student, subject=None,
+                    date=datetime.date(2026, 9, 3), status="ABSENT",
+                )
+
+    def test_the_same_day_for_a_different_student_is_fine(self):
+        other = make_student(self.org, "s2", "ADM-2", "R-2")
+
+        for student in (self.student, other):
+            Attendance.objects.create(
+                student=student, subject=None,
+                date=datetime.date(2026, 9, 3), status="PRESENT",
+            )
+
+        self.assertEqual(Attendance.objects.count(), 2)
+
+    def test_repeated_gate_scans_still_produce_one_record(self):
+        """The service uses get_or_create; the constraint is the backstop for
+        two scans landing at the same instant."""
+        qr = StudentQRCode.objects.create(student=self.student)
+        driver = make_driver_user(self.org, "driver_x")
+
+        self.client.force_authenticate(driver)
+        for _ in range(3):
+            self.client.post(
+                reverse("attendance-scan"),
+                {"code": str(qr.code), "scan_type": "IN", "context": "CAMPUS"},
+            )
+
+        self.assertEqual(Attendance.objects.count(), 1)

@@ -93,14 +93,25 @@ class ExamSchedule(models.Model):
         max_digits=6, decimal_places=2, default=Decimal("35.00")
     )
 
+    # Same reason as Attendance.subject_key: a nullable column in a unique
+    # constraint is not enforced, so papers with no classroom set could be
+    # duplicated freely.
+    classroom_key = models.PositiveIntegerField(editable=False, default=0)
+
     class Meta:
         ordering = ["exam_date", "start_time"]
         constraints = [
             models.UniqueConstraint(
-                fields=["exam", "subject", "classroom"],
+                fields=["exam", "subject", "classroom_key"],
                 name="unique_paper_per_exam_subject_classroom",
             )
         ]
+
+    def save(self, *args, **kwargs):
+        self.classroom_key = self.classroom_id or 0
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"classroom_key"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.exam.name} - {self.subject.name} on {self.exam_date}"

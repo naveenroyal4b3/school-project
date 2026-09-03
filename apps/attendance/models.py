@@ -65,15 +65,28 @@ class Attendance(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Mirrors subject_id, or 0 for a whole-day record. The constraint below
+    # cannot span the nullable subject directly: SQL treats NULL as distinct
+    # from NULL, so daily attendance - which always has subject NULL, and is
+    # what the gate scanner writes - was never actually guarded. Two scans
+    # landing together could each create a row for the same student and day.
+    subject_key = models.PositiveIntegerField(editable=False, default=0)
+
     class Meta:
         ordering = ["-date"]
         indexes = [models.Index(fields=["student", "-date"])]
         constraints = [
             models.UniqueConstraint(
-                fields=["student", "subject", "date"],
+                fields=["student", "subject_key", "date"],
                 name="unique_attendance_per_student_subject_date",
             )
         ]
+
+    def save(self, *args, **kwargs):
+        self.subject_key = self.subject_id or 0
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"subject_key"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.student.admission_no} {self.date} {self.status}"
