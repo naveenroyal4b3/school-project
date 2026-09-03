@@ -3,7 +3,7 @@ from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.mixins import OrganizationScopedMixin
+from apps.common.mixins import OrganizationScopedMixin, RowLevelScopedMixin
 from apps.common.permissions import IsAdminOrReadOnly, IsDriverOrAdmin
 
 from .models import Bus, BusLocation, Driver, Route, RouteStop, StudentTransport, Trip
@@ -68,18 +68,20 @@ class BusDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIVi
     permission_classes = [IsAdminOrReadOnly]
 
 
-class StudentTransportListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+class StudentTransportListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
     queryset = StudentTransport.objects.select_related("student", "bus").all()
     serializer_class = StudentTransportSerializer
     permission_classes = [IsAdminOrReadOnly]
     organization_path = "bus__organization"
+    student_path = "student"
 
 
-class StudentTransportDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class StudentTransportDetailView(RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = StudentTransport.objects.select_related("student", "bus").all()
     serializer_class = StudentTransportSerializer
     permission_classes = [IsAdminOrReadOnly]
     organization_path = "bus__organization"
+    student_path = "student"
 
 
 class TripListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
