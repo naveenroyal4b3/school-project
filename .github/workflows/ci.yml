@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes the run already in flight for the same branch.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-sqlite:
+    name: Tests (SQLite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: System checks
+        env:
+          SECRET_KEY: ci-only-not-a-real-key
+          DEBUG: "True"
+        run: python manage.py check
+
+      - name: Migrations are complete
+        # Catches a model changed without its migration, which passes locally
+        # and then fails on deploy.
+        env:
+          SECRET_KEY: ci-only-not-a-real-key
+          DEBUG: "True"
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        env:
+          SECRET_KEY: ci-only-not-a-real-key
+          DEBUG: "True"
+        run: python manage.py test --verbosity=2
+
+  test-mysql:
+    name: Tests (MySQL)
+    runs-on: ubuntu-latest
+
+    # MySQL is the documented production database, and it differs from SQLite
+    # exactly where this project is busiest: decimal rounding on fee totals and
+    # case sensitivity in the student search.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root
+          MYSQL_DATABASE: student_management_db
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pci_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Tests against MySQL
+        env:
+          SECRET_KEY: ci-only-not-a-real-key
+          DEBUG: "True"
+          DB_ENGINE: django.db.backends.mysql
+          DB_NAME: student_management_db
+          DB_USER: root
+          DB_PASSWORD: ci_root
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+        run: python manage.py test --verbosity=2
+
+  deployment-checks:
+    name: Production checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Django deployment checklist
+        # Run with DEBUG off so the HTTPS, cookie and HSTS settings are actually
+        # exercised - with DEBUG on they are skipped and prove nothing.
+        env:
+          SECRET_KEY: a-sufficiently-long-random-key-for-the-deployment-checklist
+          DEBUG: "False"
+          ALLOWED_HOSTS: example.com
+        run: python manage.py check --deploy --fail-level WARNING
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t smart-sms:ci .
+
+      - name: Compose config is valid
+        run: SECRET_KEY=ci docker compose config --quiet
+
+      - name: Stack starts and serves
+        run: |
+          SECRET_KEY=ci-only-not-a-real-key docker compose up -d db web
+          # The entrypoint waits for MySQL, migrates, then starts gunicorn.
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:8000/login/; then
+              echo "stack is serving"; exit 0
+            fi
+            sleep 5
+          done
+          echo "stack did not come up"; docker compose logs; exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
