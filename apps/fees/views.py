@@ -1,6 +1,7 @@
 from rest_framework import generics
 from rest_framework.response import Response
 
+from apps.common.audit import AuditedMixin
 from apps.common.mixins import OrganizationScopedMixin, RowLevelScopedMixin
 from apps.common.permissions import IsAdmin, IsAdminOrReadOnly
 from apps.notifications.models import Notification
@@ -26,7 +27,7 @@ class FeeStructureDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDes
     permission_classes = [IsAdminOrReadOnly]
 
 
-class FeePaymentListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
+class FeePaymentListCreateView(AuditedMixin, RowLevelScopedMixin, generics.ListCreateAPIView):
     queryset = FeePayment.objects.select_related("student", "fee_structure").all()
     serializer_class = FeePaymentSerializer
     permission_classes = [IsAdminOrReadOnly]
@@ -54,7 +55,7 @@ class FeePaymentListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
             )
 
 
-class FeePaymentDetailView(RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class FeePaymentDetailView(AuditedMixin, RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = FeePayment.objects.select_related("student", "fee_structure").all()
     serializer_class = FeePaymentSerializer
     permission_classes = [IsAdminOrReadOnly]

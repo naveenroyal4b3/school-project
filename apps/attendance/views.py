@@ -3,6 +3,7 @@ from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.response import Response
 
+from apps.common.audit import AuditedMixin
 from apps.common.mixins import OrganizationScopedMixin, RowLevelScopedMixin
 from apps.common.permissions import (
     IsAdmin,
@@ -26,7 +27,7 @@ from .serializers import (
 from .services import record_bus_scan, record_campus_scan
 
 
-class AttendanceListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
+class AttendanceListCreateView(AuditedMixin, RowLevelScopedMixin, generics.ListCreateAPIView):
     queryset = Attendance.objects.select_related("student").all()
     serializer_class = AttendanceSerializer
     permission_classes = [IsFacultyOrAdmin]
@@ -56,7 +57,7 @@ class AttendanceListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
         serializer.save(marked_by=self.request.user)
 
 
-class AttendanceDetailView(RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class AttendanceDetailView(AuditedMixin, RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = Attendance.objects.select_related("student").all()
     serializer_class = AttendanceSerializer
     permission_classes = [IsFacultyOrAdmin]

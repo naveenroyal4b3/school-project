@@ -1,5 +1,6 @@
 from rest_framework import generics
 
+from apps.common.audit import AuditedMixin
 from apps.common.mixins import RowLevelScopedMixin
 from apps.common.permissions import IsAdminOrReadOnly
 
@@ -23,7 +24,7 @@ class StudentQuerysetMixin(RowLevelScopedMixin):
     permission_classes = [IsAdminOrReadOnly]
 
 
-class StudentListCreateView(StudentQuerysetMixin, generics.ListCreateAPIView):
+class StudentListCreateView(AuditedMixin, StudentQuerysetMixin, generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = super().get_queryset()
 
@@ -53,5 +54,5 @@ class StudentListCreateView(StudentQuerysetMixin, generics.ListCreateAPIView):
         return queryset.order_by("admission_no")
 
 
-class StudentDetailView(StudentQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
+class StudentDetailView(AuditedMixin, StudentQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
     pass

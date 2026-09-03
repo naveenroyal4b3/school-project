@@ -13,6 +13,8 @@ from .authentication import (
     clear_auth_cookies,
     set_auth_cookies,
 )
+from apps.common.audit import ActivityLog, record
+
 from .models import User
 from .serializers import UserRegistrationSerializer, UserSerializer
 
@@ -72,6 +74,9 @@ class LoginView(APIView):
         )
 
         if user is None:
+            # Failed attempts are logged so a brute-force shows up in the trail
+            # rather than only in the throttle counter, which is not durable.
+            record(request, ActivityLog.Action.LOGIN_FAILED)
             # One message for a bad username and a bad password alike, so the
             # response cannot be used to discover which accounts exist.
             return Response(
@@ -84,6 +89,9 @@ class LoginView(APIView):
                 {"error": "This account has been deactivated."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        request.user = user  # so the entry names the actor
+        record(request, ActivityLog.Action.LOGIN, user)
 
         refresh = RefreshToken.for_user(user)
         access = str(refresh.access_token)
@@ -119,6 +127,8 @@ class LogoutView(APIView):
                 # Already expired or already blacklisted. Signing out twice is
                 # not an error the user should ever see.
                 pass
+
+        record(request, ActivityLog.Action.LOGOUT)
 
         response = Response({"message": "Signed out."}, status=status.HTTP_200_OK)
         return clear_auth_cookies(response)

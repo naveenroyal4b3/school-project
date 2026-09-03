@@ -3,6 +3,7 @@ from rest_framework import generics
 from rest_framework.response import Response
 
 from apps.accounts.models import User
+from apps.common.audit import AuditedMixin
 from apps.common.mixins import OrganizationScopedMixin, RowLevelScopedMixin
 from apps.common.permissions import IsAdminOrReadOnly, IsFacultyOrAdmin
 from apps.notifications.models import Notification
@@ -38,7 +39,7 @@ class ExamScheduleDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDes
     organization_path = "exam__organization"
 
 
-class ResultListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
+class ResultListCreateView(AuditedMixin, RowLevelScopedMixin, generics.ListCreateAPIView):
     """Faculty enter marks; students and parents read them.
 
     Unpublished results are hidden from everyone except faculty and admins, so
@@ -68,7 +69,7 @@ class ResultListCreateView(RowLevelScopedMixin, generics.ListCreateAPIView):
         return queryset
 
 
-class ResultDetailView(RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class ResultDetailView(AuditedMixin, RowLevelScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = Result.objects.select_related("student", "exam_schedule").all()
     serializer_class = ResultSerializer
     permission_classes = [IsFacultyOrAdmin]

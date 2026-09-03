@@ -2,20 +2,30 @@ from rest_framework import generics, viewsets
 from rest_framework.exceptions import NotFound
 
 from apps.common.mixins import OrganizationScopedMixin
-from apps.common.permissions import IsSuperAdmin
+from apps.common.permissions import IsAdmin, IsSuperAdmin
 
 from .models import Organization
 from .serializers import OrganizationBrandingSerializer, OrganizationSerializer
 
 
 class OrganizationViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
-    """Tenants themselves. Only SUPER_ADMIN may create or remove a college;
-    everyone else is scoped to the single organization they belong to."""
+    """Tenants themselves.
+
+    Only SUPER_ADMIN may create a college or remove one - that is platform
+    administration. An ORGANIZATION_ADMIN may read and update the single
+    organization they belong to, which is what makes the branding settings
+    usable: a client changing their own logo and colours should not need the
+    platform owner to do it for them.
+    """
 
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
-    permission_classes = [IsSuperAdmin]
     organization_path = "id"
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve", "update", "partial_update"):
+            return [IsAdmin()]
+        return [IsSuperAdmin()]
 
 
 class MyOrganizationView(generics.RetrieveAPIView):

@@ -25,6 +25,7 @@ urlpatterns = [
     path("api/examinations/", include("apps.examinations.urls")),
     path("api/notifications/", include("apps.notifications.urls")),
     path("api/", include("apps.dashboard.urls")),
+    path("api/", include("apps.common.urls")),
 
     # Bootstrap front end (Django templates talking to the API over AJAX).
     path("", include("apps.web.urls")),
