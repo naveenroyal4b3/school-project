@@ -13,7 +13,7 @@ from io import StringIO
 from pathlib import Path
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from apps.accounts.models import User
 from apps.attendance.models import Attendance
@@ -67,7 +67,21 @@ class BackupTests(TestCase):
             self.assertLessEqual(len(list(Path(out).glob("db-*.json.gz"))), 2)
 
 
-class RestoreTests(TestCase):
+class RestoreTests(TransactionTestCase):
+    """TransactionTestCase, not TestCase.
+
+    Restoring runs `flush`, which on MySQL issues TRUNCATE. TRUNCATE causes an
+    implicit commit, which destroys the transaction TestCase wraps each test in
+    and leaves every later query raising TransactionManagementError. SQLite
+    flushes with DELETE and survives it, so this only fails on the production
+    database - which is exactly the class of bug the MySQL CI job exists to
+    catch.
+
+    TransactionTestCase runs without that wrapper, so the command behaves as it
+    does in production. It is slower, which is why it is used here and not
+    everywhere.
+    """
+
     def setUp(self):
         self.org = make_organization("ORGA", "School A")
         self.student = make_student(self.org, "s1", "ADM-RESTORE", "R-1")

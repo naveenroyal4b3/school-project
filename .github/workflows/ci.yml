@@ -136,8 +136,13 @@ jobs:
             tail -c 6000 mysql-tests.log >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             # Annotations are readable through the API; workflow logs are not.
+            # One per failing test, so the names are visible rather than
+            # whatever happened to fall inside a truncated tail.
+            grep -E '^(FAIL|ERROR): ' mysql-tests.log | while read -r line; do
+              echo "::error title=MySQL failure::${line}"
+            done
             summary=$(tail -c 900 mysql-tests.log | tr '\n\r' '  ')
-            echo "::error title=MySQL tests failed::${summary}"
+            echo "::error title=MySQL tail::${summary}"
           fi
           exit "$status"
 
