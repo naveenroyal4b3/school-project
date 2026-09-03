@@ -32,7 +32,15 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 
 ## Running with Docker and MySQL
 
-Requires Docker Desktop. Brings up MySQL 8, Gunicorn and Nginx together:
+Requires Docker Desktop, which on Windows needs WSL2. If `wsl --status` reports
+that virtualization is not enabled, run this in an **administrator** PowerShell
+and reboot:
+
+```powershell
+wsl --install --no-distribution
+```
+
+Then brings up MySQL 8, Gunicorn and Nginx together:
 
 ```bash
 docker compose up --build
@@ -43,7 +51,11 @@ Then <http://localhost/>. Migrations and `collectstatic` run automatically from
 published on host port **3307** so it will not clash with a locally installed
 MySQL.
 
-Set `SECRET_KEY` in `.env` before starting - Compose refuses to boot without it.
+Set `SECRET_KEY` in `.env` before starting - Compose refuses to boot without it,
+and every compose command needs it, teardown included.
+
+CI builds this image and waits for the stack to serve on every push, so a
+change that breaks the container is caught even if nobody runs Docker locally.
 
 ---
 
@@ -278,6 +290,19 @@ no network calls and incur no charges. To go live, implement a class with a
 ```bash
 python manage.py test
 ```
+
+CI runs the suite twice on every push: once on SQLite and once against a real
+MySQL 8 service. That second run is not redundant. It has already caught three
+bugs that SQLite hid:
+
+- Conditional unique constraints, which MySQL does not support and Django drops
+  with only a warning - the timetable clash rules would not have existed in
+  production.
+- A unique constraint spanning a nullable column, which SQL never enforces.
+  Daily attendance always has a null subject, so the guard on the records the
+  gate scanner writes was inert on every database.
+- `TRUNCATE`'s implicit commit, which destroys the transaction Django wraps
+  each test in.
 
 79 tests covering access control, multi-tenant isolation, automatic attendance
 from card scans, the late cutoff, bulk attendance atomicity, every Indian
