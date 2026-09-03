@@ -44,10 +44,21 @@ def to_minor_units(amount):
 class ConsolePaymentGateway:
     """Development gateway. Issues an order id and accepts every verification.
 
-    Never enable this in production: it would mark unpaid fees as settled.
+    It settles nothing, so running it in production would mark unpaid fees as
+    paid across a whole school. A comment saying so is not a control, hence the
+    hard refusal below: with DEBUG off, this must not be constructible.
     """
 
     name = "console"
+
+    def __init__(self):
+        if not settings.DEBUG:
+            raise ImproperlyConfigured(
+                "ConsolePaymentGateway accepts every payment without taking "
+                "money and cannot be used with DEBUG=False. Set PAYMENT_GATEWAY "
+                "to a real gateway, for example "
+                "apps.fees.gateways.RazorpayGateway."
+            )
 
     def create_order(self, *, amount, receipt, currency="INR"):
         order_id = f"order_dev_{uuid.uuid4().hex[:14]}"

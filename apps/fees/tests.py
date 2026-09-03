@@ -282,9 +282,13 @@ class PaymentGatewayTests(APITestCase):
         self.assertEqual(to_minor_units(Decimal("1500.00")), 150000)
         self.assertEqual(to_minor_units(Decimal("99.99")), 9999)
 
-        order = get_payment_gateway().create_order(
-            amount=Decimal("1500.00"), receipt="RCPT-00000001"
-        )
+        # The test runner sets DEBUG=False, which the console gateway now
+        # refuses, so exercising it means saying explicitly that this is a
+        # development scenario.
+        with override_settings(DEBUG=True):
+            order = get_payment_gateway().create_order(
+                amount=Decimal("1500.00"), receipt="RCPT-00000001"
+            )
         self.assertEqual(order["amount"], 150000)
         self.assertEqual(order["currency"], "INR")
         self.assertTrue(order["order_id"].startswith("order_dev_"))
@@ -348,3 +352,30 @@ class RazorpayGatewayTests(TestCase):
         with override_settings(RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET=""):
             with self.assertRaises(ImproperlyConfigured):
                 RazorpayGateway()
+
+
+class ConsoleGatewayGuardTests(TestCase):
+    """The console gateway accepts every payment without taking money. Running
+    it in production would mark a whole school's fees as paid."""
+
+    def test_it_works_in_development(self):
+        from apps.fees.gateways import get_payment_gateway
+
+        with override_settings(DEBUG=True):
+            self.assertEqual(get_payment_gateway().name, "console")
+
+    def test_it_refuses_to_run_with_debug_off(self):
+        from apps.fees.gateways import get_payment_gateway
+
+        with override_settings(DEBUG=False, PAYMENT_GATEWAY=""):
+            with self.assertRaises(ImproperlyConfigured):
+                get_payment_gateway()
+
+    def test_the_error_says_what_to_do_instead(self):
+        from apps.fees.gateways import ConsolePaymentGateway
+
+        with override_settings(DEBUG=False):
+            with self.assertRaises(ImproperlyConfigured) as caught:
+                ConsolePaymentGateway()
+
+        self.assertIn("RazorpayGateway", str(caught.exception))
